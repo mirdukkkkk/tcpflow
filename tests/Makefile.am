@@ -8,9 +8,9 @@
 # About the test files:
 #
 
-SH_TESTS = test1.sh test-pdfs.sh test-multifile.sh test-iptree.sh test-chroot.sh test-relinquish.sh test-unk-packets.sh test-tso.sh
+SH_TESTS = test1.sh test-pdfs.sh test-multifile.sh test-iptree.sh test-chroot.sh test-relinquish.sh test-unk-packets.sh test-tso.sh test-dissect.sh
 
-EXTRA_DIST = $(SH_TESTS) test-subs.sh test1.pcap test2.pcap test3.pcap test4.pcap udp.pcap bug7.pcap
+EXTRA_DIST = $(SH_TESTS) test-subs.sh test1.pcap test2.pcap test3.pcap test4.pcap udp.pcap bug7.pcap truncated-tcp.pcap
 
 TESTS = $(SH_TESTS)
 
