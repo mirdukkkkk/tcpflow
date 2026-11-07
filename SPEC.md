@@ -711,7 +711,7 @@ Based on #281, with the problems found in its review fixed (D22–D24):
 | D31 | The child that runs `tcp_cmd` or `http_cmd` ends with `exit()`, which moves the read position of the input file it shares with tcpflow, so tcpflow reads garbage (`invalid packet capture length`) and stops early. | Commands do not touch tcpflow's files. Fixed in 1.x as well (`fix/cmd-exit`). |
 | D32 | `open` is written again each time a flow file is reopened after the open file limit; a flow without a file writes `close` with an empty path. | `open` once, when the file is created; nothing for flows without a file. |
 | D33 | tcpflow exits without waiting for running commands. The limit of 10 counts any finished child, of either kind. | tcpflow waits for its commands; each kind has its own limit. |
-| D34 | `-L` always fails with `(null): attempt to create lock pthreads not present`, because `configure` never defines `HAVE_PTHREAD_H`; the semaphore calls themselves are behind `HAVE_PTHREAD`, which is never defined either. A failing `sem_open` is not checked. | Section 9.4. |
+| D34 | `-L` always fails with `(null): attempt to create lock pthreads not present`, because `configure` never defines `HAVE_PTHREAD_H`; the semaphore calls themselves are behind `HAVE_PTHREAD`, which is never defined either. A failing `sem_open` is not checked. | Section 9.4. Fixed in 1.x as well (`fix/semlock`). |
 
 Differences that only affect level C outputs are not listed.
 
