@@ -73,13 +73,16 @@ fn unknown_device() {
 #[test]
 fn unwritable_outdir_names_the_file() {
     use std::os::unix::fs::PermissionsExt;
-    if unsafe { libc::geteuid() } == 0 {
-        return; // root writes anyway
-    }
     let dir = std::env::temp_dir().join(format!("tcpflow-test-ro-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+    // root (or CAP_DAC_OVERRIDE) writes anyway: then there is nothing to test
+    if std::fs::File::create(dir.join("probe")).is_ok() {
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        return;
+    }
     let pcap = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/captures/http/two-connections.pcap"

@@ -149,7 +149,7 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
         .as_deref()
         .map(semlock::SemLock::open)
         .transpose()?;
-    signals::install();
+    signals::install().map_err(|e| format!("cannot install signal handlers: {e}"))?;
     let mut splitter = cfg
         .split
         .then(|| split::Splitter::new(&cfg.outdir, demux.template().clone(), cfg.max_open));
@@ -329,11 +329,11 @@ fn read_file(
 
 /// Capture from a device until a signal stops it.
 fn read_live(engine: &mut dyn Engine, cfg: &Config, late: &mut Late) -> Result<bool, String> {
-    let (device, cap) = input::live(cfg.device.as_deref(), cfg.promisc, cfg.buffer_timeout)?;
+    let (device, mut cap) = input::live(cfg.device.as_deref(), cfg.promisc, cfg.buffer_timeout)?;
     late.first_input_open(cfg, &cap)?;
     log::debug(1, &format!("listening on {device}"));
-    let mut cap = signals::wake_on_stop(cap);
-    read_packets(engine, cfg, &device, cap.capture(), &mut late.unprocessed)
+    signals::wake_on_stop(&mut cap);
+    read_packets(engine, cfg, &device, &mut cap, &mut late.unprocessed)
 }
 
 fn read_packets<T: pcap::Activated + ?Sized>(

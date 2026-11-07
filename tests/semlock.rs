@@ -10,20 +10,49 @@ const PCAP: &str = concat!(
     "/tests/captures/http/two-connections.pcap"
 );
 
+/// A named semaphore taken by the test (value 0); closed and removed when dropped,
+/// also when an assertion fails.
+struct Sem {
+    name: CString,
+    sem: *mut libc::sem_t,
+}
+
+impl Sem {
+    fn taken(name: &str) -> Sem {
+        let name = CString::new(name).unwrap();
+        // SAFETY: a valid name; mode and value are passed as C unsigned ints.
+        let sem = unsafe {
+            libc::sem_open(
+                name.as_ptr(),
+                libc::O_CREAT,
+                0o600 as libc::c_uint,
+                0 as libc::c_uint,
+            )
+        };
+        assert_ne!(sem, libc::SEM_FAILED);
+        Sem { name, sem }
+    }
+
+    fn post(&self) {
+        // SAFETY: the semaphore is open until drop.
+        unsafe { libc::sem_post(self.sem) };
+    }
+}
+
+impl Drop for Sem {
+    fn drop(&mut self) {
+        // SAFETY: the semaphore is open and no longer used.
+        unsafe {
+            libc::sem_close(self.sem);
+            libc::sem_unlink(self.name.as_ptr());
+        }
+    }
+}
+
 #[test]
 fn console_output_waits_for_the_semaphore() {
     let name = format!("/tcpflow-test-{}", std::process::id());
-    let c = CString::new(name.clone()).unwrap();
-    // SAFETY: plain calls with a valid name; the semaphore is checked below.
-    let sem = unsafe {
-        libc::sem_open(
-            c.as_ptr(),
-            libc::O_CREAT,
-            0o600 as libc::c_uint,
-            0 as libc::c_uint,
-        )
-    };
-    assert_ne!(sem, libc::SEM_FAILED);
+    let sem = Sem::taken(&name);
 
     let out = std::env::temp_dir().join(format!("tcpflow-test-semlock-{}", std::process::id()));
     let mut child = Command::new(TCPFLOW)
@@ -34,16 +63,9 @@ fn console_output_waits_for_the_semaphore() {
         .unwrap();
     std::thread::sleep(Duration::from_millis(300));
     let blocked = std::fs::metadata(&out).unwrap().len();
-    // SAFETY: the semaphore is open.
-    unsafe { libc::sem_post(sem) };
+    sem.post();
     assert!(child.wait().unwrap().success());
     let printed = std::fs::read(&out).unwrap();
-
-    // SAFETY: as above.
-    unsafe {
-        libc::sem_close(sem);
-        libc::sem_unlink(c.as_ptr());
-    }
     std::fs::remove_file(&out).unwrap();
     assert_eq!(blocked, 0, "printed while the semaphore was taken");
     let plain = Command::new(TCPFLOW)
@@ -67,17 +89,7 @@ fn a_semaphore_that_cannot_be_opened_is_an_error() {
 #[test]
 fn a_stop_while_waiting_ends_the_run() {
     let name = format!("/tcpflow-test-stop-{}", std::process::id());
-    let c = CString::new(name.clone()).unwrap();
-    // SAFETY: a valid name; the semaphore is checked below.
-    let sem = unsafe {
-        libc::sem_open(
-            c.as_ptr(),
-            libc::O_CREAT,
-            0o600 as libc::c_uint,
-            0 as libc::c_uint,
-        )
-    };
-    assert_ne!(sem, libc::SEM_FAILED);
+    let _sem = Sem::taken(&name);
     let mut child = Command::new(TCPFLOW)
         .args(["-c", "-L", &name, "-r", PCAP])
         .stdout(Stdio::null())
@@ -85,8 +97,11 @@ fn a_stop_while_waiting_ends_the_run() {
         .spawn()
         .unwrap();
     std::thread::sleep(Duration::from_millis(300));
-    // SAFETY: plain calls on a child we started and a semaphore we opened.
-    unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGINT) };
+    let sent = Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(sent.success());
     let start = std::time::Instant::now();
     let status = loop {
         if let Some(s) = child.try_wait().unwrap() {
@@ -98,10 +113,6 @@ fn a_stop_while_waiting_ends_the_run() {
         }
         std::thread::sleep(Duration::from_millis(20));
     };
-    unsafe {
-        libc::sem_close(sem);
-        libc::sem_unlink(c.as_ptr());
-    }
     assert!(
         status
             .expect("SIGINT did not stop tcpflow waiting for -L")

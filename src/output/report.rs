@@ -166,11 +166,15 @@ pub fn escape(s: &str) -> String {
 }
 
 fn rusage() -> (f64, f64, i64) {
-    // SAFETY: getrusage only writes to the struct we pass.
-    let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
-    if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) } != 0 {
-        return (0.0, 0.0, 0);
-    }
+    // SAFETY: rusage is plain data, so all zeros is a valid value, and getrusage
+    // only writes to the struct it is given.
+    let ru = unsafe {
+        let mut ru: libc::rusage = std::mem::zeroed();
+        if libc::getrusage(libc::RUSAGE_SELF, &mut ru) != 0 {
+            return (0.0, 0.0, 0);
+        }
+        ru
+    };
     let secs = |tv: libc::timeval| tv.tv_sec as f64 + tv.tv_usec as f64 / 1e6;
     (secs(ru.ru_utime), secs(ru.ru_stime), ru.ru_maxrss as i64)
 }

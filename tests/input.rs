@@ -147,8 +147,11 @@ fn sigterm_closes_flows_and_writes_the_report() {
     stdin.flush().unwrap();
     std::thread::sleep(Duration::from_millis(500));
 
-    // SAFETY: plain kill(2) on our own child.
-    unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
+    let sent = Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(sent.success());
     let deadline = Instant::now() + Duration::from_secs(10);
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() {

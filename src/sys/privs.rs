@@ -3,6 +3,7 @@
 use std::ffi::{CStr, CString};
 use std::fs::{File, OpenOptions};
 use std::io;
+use std::mem::MaybeUninit;
 use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::fs::OpenOptionsExt;
 
@@ -28,7 +29,9 @@ fn lookup_user(name: &str) -> io::Result<Option<Passwd>> {
     };
     // SAFETY: valid pointers, and the buffer size passed is the buffer's.
     get_r(
-        |e, b, n, r| unsafe { libc::getpwnam_r(name.as_ptr(), e, b, n, r) },
+        |e, b, r| unsafe {
+            libc::getpwnam_r(name.as_ptr(), e.as_mut_ptr(), b.as_mut_ptr(), b.len(), r)
+        },
         passwd,
     )
 }
@@ -36,7 +39,7 @@ fn lookup_user(name: &str) -> io::Result<Option<Passwd>> {
 fn lookup_uid(uid: libc::uid_t) -> io::Result<Option<Passwd>> {
     // SAFETY: as above.
     get_r(
-        |e, b, n, r| unsafe { libc::getpwuid_r(uid, e, b, n, r) },
+        |e, b, r| unsafe { libc::getpwuid_r(uid, e.as_mut_ptr(), b.as_mut_ptr(), b.len(), r) },
         passwd,
     )
 }
@@ -47,7 +50,9 @@ fn lookup_group(name: &str) -> io::Result<Option<libc::gid_t>> {
     };
     // SAFETY: as above.
     get_r(
-        |e, b, n, r| unsafe { libc::getgrnam_r(name.as_ptr(), e, b, n, r) },
+        |e, b, r| unsafe {
+            libc::getgrnam_r(name.as_ptr(), e.as_mut_ptr(), b.as_mut_ptr(), b.len(), r)
+        },
         |g: &libc::group| g.gr_gid,
     )
 }
@@ -64,15 +69,15 @@ fn passwd(pw: &libc::passwd) -> Passwd {
 /// Call a `get*_r` function, growing the buffer while it is too small. `Ok(None)`
 /// if there is no such entry.
 fn get_r<E, T>(
-    call: impl Fn(*mut E, *mut libc::c_char, usize, *mut *mut E) -> libc::c_int,
+    call: impl Fn(&mut MaybeUninit<E>, &mut [libc::c_char], &mut *mut E) -> libc::c_int,
     read: impl FnOnce(&E) -> T,
 ) -> io::Result<Option<T>> {
     let mut size = 1024;
     loop {
         let mut buf = vec![0 as libc::c_char; size];
-        let mut entry = std::mem::MaybeUninit::<E>::uninit();
+        let mut entry = MaybeUninit::<E>::uninit();
         let mut res = std::ptr::null_mut();
-        match call(entry.as_mut_ptr(), buf.as_mut_ptr(), buf.len(), &mut res) {
+        match call(&mut entry, &mut buf, &mut res) {
             0 if res.is_null() => return Ok(None),
             // SAFETY: on success the entry is filled in; its strings point into buf.
             0 => return Ok(Some(read(unsafe { entry.assume_init_ref() }))),
@@ -105,10 +110,12 @@ pub fn parse(spec: &str) -> Result<Target, String> {
     if user.is_empty() && group.is_none_or(str::is_empty) {
         return Err(err("empty user and group"));
     }
-    // SAFETY: getuid and getgid cannot fail.
     let mut t = Target {
+        // `:group` keeps the uid; setuid(getuid()) is what drops a setuid-root binary
+        // SAFETY: getuid cannot fail.
         uid: unsafe { libc::getuid() },
-        gid: unsafe { libc::getgid() },
+        // always replaced below: by the user's group, the named group, or an error
+        gid: 0,
         user: None,
     };
     let mut gid_known = user.is_empty();
@@ -304,23 +311,19 @@ mod tests {
     fn lookups_grow_the_buffer() {
         let sizes = std::cell::RefCell::new(Vec::new());
         let r = get_r(
-            |e: *mut u32, _, n, res: *mut *mut u32| {
-                sizes.borrow_mut().push(n);
-                if n < 10000 {
+            |e: &mut MaybeUninit<u32>, b: &mut [libc::c_char], res: &mut *mut u32| {
+                sizes.borrow_mut().push(b.len());
+                if b.len() < 10000 {
                     return libc::ERANGE;
                 }
-                // SAFETY: the pointers come from get_r and are valid.
-                unsafe {
-                    e.write(7);
-                    *res = e;
-                }
+                *res = e.write(7);
                 0
             },
             |v| *v,
         );
         assert_eq!(r.unwrap(), Some(7));
         assert_eq!(*sizes.borrow(), [1024, 4096, 16384]);
-        let too_big = get_r(|_: *mut u32, _, _, _| libc::ERANGE, |v| *v);
+        let too_big = get_r(|_: &mut MaybeUninit<u32>, _, _| libc::ERANGE, |v| *v);
         assert_eq!(too_big.unwrap_err().raw_os_error(), Some(libc::ERANGE));
     }
 
