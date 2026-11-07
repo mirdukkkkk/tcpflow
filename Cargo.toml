@@ -2,16 +2,20 @@
 name = "tcpflow"
 version = "2.0.0-dev"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.87"
 description = "Captures TCP connections and stores each flow in its own file"
 license = "GPL-3.0-only"
 repository = "https://github.com/simsong/tcpflow"
 readme = "README.md"
 
 [dependencies]
+bzip2 = "0.6.1"
+flate2 = "1.1.11"
 lexopt = "0.3"
 libc = "0.2"
+lzma-rs = "0.3.0"
 pcap = "2.5"
+zip = { version = "7.3.0", default-features = false, features = ["deflate"] }
 
 [profile.release]
 lto = true

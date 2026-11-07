@@ -2,8 +2,10 @@ mod cli;
 mod console;
 mod decode;
 mod demux;
+mod input;
 mod naming;
 mod report;
+mod signals;
 mod stream;
 
 use std::io;
@@ -109,14 +111,19 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
         sink,
     );
 
+    signals::install();
     let mut ok = true;
     demux.start_new_flows = true;
     for path in &cfg.rfiles {
-        ok &= read_file(&mut demux, cfg, path)?;
+        if !signals::stopped() {
+            ok &= read_file(&mut demux, cfg, path)?;
+        }
     }
     demux.start_new_flows = false;
     for path in &cfg.big_r_files {
-        ok &= read_file(&mut demux, cfg, path)?;
+        if !signals::stopped() {
+            ok &= read_file(&mut demux, cfg, path)?;
+        }
     }
     demux.close_all().map_err(|e| e.to_string())?;
     let summary = Summary {
@@ -138,7 +145,23 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
 
 /// Process one capture file. Returns false if it could not be read to the end.
 fn read_file(demux: &mut Demux, cfg: &Config, path: &str) -> Result<bool, String> {
-    let mut cap = pcap::Capture::from_file(path).map_err(|e| format!("{path}: {e}"))?;
+    let mut input = input::open(path)?;
+    let complete = read_packets(demux, cfg, path, &mut input.capture)?;
+    match input.finish(path) {
+        Ok(()) => Ok(complete),
+        Err(e) => {
+            log::error(&e);
+            Ok(false)
+        }
+    }
+}
+
+fn read_packets(
+    demux: &mut Demux,
+    cfg: &Config,
+    path: &str,
+    cap: &mut pcap::Capture<pcap::Offline>,
+) -> Result<bool, String> {
     let linktype = cap.get_datalink().0;
     if !decode::supported(linktype) {
         return Err(format!(
@@ -148,9 +171,13 @@ fn read_file(demux: &mut Demux, cfg: &Config, path: &str) -> Result<bool, String
     cap.filter(&cfg.expression, true)
         .map_err(|e| format!("{}: {e}", cfg.expression))?;
     loop {
+        if signals::stopped() {
+            return Ok(true);
+        }
         let packet = match cap.next_packet() {
             Ok(p) => p,
             Err(pcap::Error::NoMorePackets) => return Ok(true),
+            Err(_) if signals::stopped() => return Ok(true),
             Err(e) => {
                 log::error(&format!("{path}: {e}"));
                 return Ok(false);
