@@ -1,0 +1,89 @@
+{
+  description = "tcpflow: TCP/IP packet demultiplexer";
+
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+  outputs =
+    { self, nixpkgs }:
+    let
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
+      ];
+      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+      cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+    in
+    {
+      packages = forAllSystems (pkgs: {
+        default = self.packages.${pkgs.stdenv.hostPlatform.system}.tcpflow;
+
+        tcpflow = pkgs.rustPlatform.buildRustPackage {
+          pname = "tcpflow";
+          inherit (cargoToml.package) version;
+
+          src = pkgs.lib.fileset.toSource {
+            root = ./.;
+            fileset = pkgs.lib.fileset.unions [
+              ./Cargo.toml
+              ./Cargo.lock
+              ./src
+              ./tests
+              ./samplePcaps
+            ];
+          };
+          cargoLock.lockFile = ./Cargo.lock;
+
+          nativeBuildInputs = [ pkgs.pkg-config ];
+          buildInputs = [ pkgs.libpcap ];
+
+          meta = {
+            description = "TCP/IP packet demultiplexer";
+            homepage = "https://github.com/simsong/tcpflow";
+            license = pkgs.lib.licenses.gpl3Only;
+            mainProgram = "tcpflow";
+            platforms = pkgs.lib.platforms.unix;
+          };
+        };
+      });
+
+      # nix flake check: the golden tests against the built binary (SPEC.md 15)
+      checks = forAllSystems (
+        pkgs:
+        let
+          tcpflow = self.packages.${pkgs.stdenv.hostPlatform.system}.tcpflow;
+        in
+        {
+          inherit tcpflow;
+          conformance =
+            pkgs.runCommand "tcpflow-conformance"
+              {
+                nativeBuildInputs = [ pkgs.python3 ];
+              }
+              ''
+                cp -r ${tcpflow.src} src && chmod -R u+w src && cd src
+                python3 -I tests/conformance.py check ${tcpflow}/bin/tcpflow
+                touch $out
+              '';
+        }
+      );
+
+      devShells = forAllSystems (pkgs: {
+        default = pkgs.mkShell {
+          packages = with pkgs; [
+            cargo
+            rustc
+            clippy
+            rustfmt
+            rust-analyzer
+            pkg-config
+            libpcap
+            python3
+          ];
+        };
+      });
+
+      formatter = forAllSystems (pkgs: pkgs.nixfmt);
+    };
+}
