@@ -56,3 +56,44 @@ fn shifting_is_limited_and_keeps_the_file_sparse() {
     assert!(report.contains("violations='1'"), "{report}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// 10 segments of 60 bytes, then a FIN: longer than `-m 100`.
+fn long_stream(dir: &std::path::Path) {
+    let mut segs = vec![seg(999, SYN, b"")];
+    for i in 0..10u32 {
+        segs.push(seg(1000 + i * 60, ACK | PSH, &[b'a' + i as u8; 60]));
+    }
+    segs.push(seg(1600, ACK | FIN, b""));
+    ethernet_pcap(&dir.join("in.pcap"), &segs);
+}
+
+#[test]
+fn without_flow_files_the_stream_position_still_advances() {
+    let dir = scratch("fx-long");
+    long_stream(&dir);
+    assert!(
+        run(&dir, &["-FX", "-m", "100", "-o", "out", "-r", "in.pcap"])
+            .status
+            .success()
+    );
+    let report = report(&dir);
+    assert_eq!(report.matches("<fileobject>").count(), 1, "{report}");
+    assert!(report.contains("<filesize>600</filesize>"), "{report}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn console_output_keeps_one_flow_beyond_the_gap_limit() {
+    let dir = scratch("c-long");
+    long_stream(&dir);
+    let out = run(&dir, &["-c", "-m", "100", "-T", "flow%N", "-r", "in.pcap"]);
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(
+        text.lines().filter(|l| l.starts_with("flow000: ")).count(),
+        10,
+        "{text}"
+    );
+    assert!(!text.contains("flow001"), "{text}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}

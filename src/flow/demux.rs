@@ -96,6 +96,8 @@ pub struct Flow {
     pos: u64,
     /// Logical stream size: the furthest offset reached (SPEC.md 6.4).
     pub last_byte: u64,
+    /// Bytes printed with console output, for `-b` (SPEC.md 9).
+    printed: u64,
     seen: Seen,
     /// Shifts for data before the guessed ISN, and their total size (SPEC.md 6.2).
     shifts: u32,
@@ -300,6 +302,7 @@ impl<'a> Demux<'a> {
                 fin_size: 0,
                 pos: 0,
                 last_byte: 0,
+                printed: 0,
                 seen: Seen::default(),
                 shifts: 0,
                 shifted: 0,
@@ -334,10 +337,12 @@ impl<'a> Demux<'a> {
         }
 
         if datalen > 0 {
+            // the stream position is kept in every mode, so that gaps (5.3) and the
+            // FIN (5.4) work the same with -c and -FX (D39)
+            let write = self.opt.store_output && self.opt.console.is_none();
+            self.store(&key, seg.payload, delta, meta.ts, write)?;
             if let Some(copt) = self.opt.console {
                 self.print(&key, seg.payload, &copt)?;
-            } else if self.opt.store_output {
-                self.store(&key, seg.payload, delta, meta.ts)?;
             }
         }
 
@@ -416,10 +421,10 @@ impl<'a> Demux<'a> {
         let f = self.flows.get_mut(key).unwrap();
         let mut length = data.len() as u64;
         if let Some(max) = max_bytes {
-            if f.last_byte > max {
+            if f.printed > max {
                 return Ok(());
             }
-            length = length.min(max - f.last_byte);
+            length = length.min(max - f.printed);
             if length == 0 {
                 return Ok(());
             }
@@ -449,12 +454,20 @@ impl<'a> Demux<'a> {
         if held.is_some() {
             out.flush()?;
         }
-        f.last_byte += length;
+        f.printed += length;
         Ok(())
     }
 
-    /// Store a segment's data in its flow file (SPEC.md section 6).
-    fn store(&mut self, key: &FlowKey, data: &[u8], delta: i32, ts: Timestamp) -> io::Result<()> {
+    /// Place a segment in the stream (SPEC.md section 6), and with `write` store its
+    /// data in the flow file.
+    fn store(
+        &mut self,
+        key: &FlowKey,
+        data: &[u8],
+        delta: i32,
+        ts: Timestamp,
+        write: bool,
+    ) -> io::Result<()> {
         let length = data.len() as u64;
         let max_bytes = self.opt.max_bytes;
         let (mut offset, pos, syn_count) = {
@@ -486,14 +499,15 @@ impl<'a> Demux<'a> {
             }
         }
 
-        if !self.ensure_open(key)? {
+        if write && !self.ensure_open(key)? {
             return Ok(());
         }
         let f = self.flows.get_mut(key).unwrap();
-        let file = f.file.as_mut().unwrap();
 
         if insert > 0 {
-            stream::shift_up(file, insert)?;
+            if let Some(file) = f.file.as_mut() {
+                stream::shift_up(file, insert)?;
+            }
             f.isn = f.isn.wrapping_sub(insert as u32);
             f.pos = 0;
             f.nsn = f.isn.wrapping_add(1);
@@ -520,7 +534,7 @@ impl<'a> Demux<'a> {
             f.nsn = f.nsn.wrapping_add(delta as u32);
         }
 
-        if wlength > 0 {
+        if let (true, Some(file)) = (wlength > 0, f.file.as_mut()) {
             stream::write_at(file, f.pos, &data[..wlength as usize])?;
         }
         if let Some(index) = f.index.as_mut() {

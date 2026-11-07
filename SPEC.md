@@ -372,6 +372,11 @@ at its stored position.
 
 ## 9. Console output
 
+Console output and `-FX` follow the stream exactly as when files are
+written (sections 5 and 6): gaps, the FIN and the byte limit work the
+same, only nothing is written to flow files (D39). `-b` limits the bytes
+printed per flow.
+
 With `-c`, `-C` or `-J`, segments are printed in arrival order. No
 reassembly is done.
 
@@ -740,6 +745,7 @@ Based on #281, with the problems found in its review fixed (D22–D24):
 | D36 | Output files that already exist are opened through symbolic links: someone who can write to the output directory can plant `report.xml` or a `-K` file as a link and make tcpflow (often root) truncate and overwrite another file. | Links in the output directory are not followed (section 16). |
 | D37 | A shift for data before the guessed ISN (6.2) keeps old bytes in front of the moved content, forgets the seen ranges, so the FIN no longer closes the flow, and leaves the logical size unchanged, so `filesize` is too small. Shifts are unlimited: a few packets make a file of hundreds of megabytes. | Section 6.2. |
 | D38 | Compressed HTTP bodies are decompressed without a limit: a 1 MB response can become a body file of a gigabyte or more. | `http_max_body` (section 13.2). |
+| D39 | With `-c`, `-C` or `-FX` the stream position does not advance: a flow longer than `-m` is split into a new flow at every segment after the limit, and a FIN never closes a flow. | The stream is followed the same way in every mode (sections 5, 6); only the file writes are left out. |
 
 Differences that only affect level C outputs are not listed.
 
