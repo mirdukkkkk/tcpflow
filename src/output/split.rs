@@ -1,6 +1,6 @@
 //! `-K`: one pcap file per flow instead of reassembled data (SPEC.md section 11).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
 use std::path::Path;
@@ -30,6 +30,8 @@ pub struct Splitter {
     /// The file of each flow, named when its first packet arrives.
     names: HashMap<FlowKey, String>,
     outputs: HashMap<String, Output>,
+    /// Outputs with an open file by `last_use` (unique: one write per tick).
+    lru: BTreeMap<u64, String>,
     open: usize,
     clock: u64,
 }
@@ -43,6 +45,7 @@ impl Splitter {
             max_open: max_open.unwrap_or_else(default_max_open).max(1),
             names: HashMap::new(),
             outputs: HashMap::new(),
+            lru: BTreeMap::new(),
             open: 0,
             clock: 0,
         }
@@ -127,7 +130,10 @@ impl Splitter {
             Some(_) => {}
         }
         let out = self.outputs.get_mut(&path).unwrap();
+        // a closed output left the index when it was closed; a new one has 0
+        self.lru.remove(&out.last_use);
         out.last_use = self.clock;
+        self.lru.insert(self.clock, path);
         write_record(out.file.as_mut().unwrap(), rec)
     }
 
@@ -151,13 +157,7 @@ impl Splitter {
     }
 
     fn close_oldest(&mut self) -> io::Result<()> {
-        let oldest = self
-            .outputs
-            .iter()
-            .filter(|(_, o)| o.file.is_some())
-            .min_by_key(|(_, o)| o.last_use)
-            .map(|(k, _)| k.clone());
-        if let Some(path) = oldest {
+        if let Some((_, path)) = self.lru.pop_first() {
             if let Some(mut f) = self.outputs.get_mut(&path).unwrap().file.take() {
                 self.open -= 1;
                 f.flush()?;
