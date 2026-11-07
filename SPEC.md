@@ -581,6 +581,7 @@ As specified for 1.6.2 by #281:
 | D16 | `.findx` offsets are not adjusted when data is shifted (6.2), so they point at the wrong bytes; the index is never sorted although the documentation says so. | Offsets follow the data and the index is sorted. Fixed in 1.x as well (`fix/findx-offsets`). |
 | D17 | `-FM` enables the MD5 post-processor but not post-processing itself, so no digest is ever written. | `-FM` adds MD5 digests (13.1). |
 | D18 | Post-processing is skipped for a flow whose content is identical to an earlier flow (bulk_extractor's duplicate detection), so it gets no MD5 and its HTTP bodies are not extracted. | Every flow is post-processed. |
+| D19 | `-K` files of Ethernet captures have link type 6 (Token Ring), so tcpdump and Wireshark decode every packet wrongly. | The link type of the input. Fixed in 1.x as well (`fix/k-linktype`). |
 
 Differences that only affect level C outputs are not listed.
 
