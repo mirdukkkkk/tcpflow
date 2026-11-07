@@ -60,11 +60,11 @@ fn main() -> ExitCode {
 
 fn run(cfg: &Config) -> Result<ExitCode, String> {
     log::set_level(cfg.debug);
-    if cfg.rfiles.is_empty() && cfg.big_r_files.is_empty() {
-        return Err("live capture (-i) is not implemented yet; use -r".into());
+    if cfg.device.is_some() && !cfg.live() {
+        return Err("-i cannot be used with -r or -R".into());
     }
-    if cfg.unprocessed.is_some() && cfg.rfiles.is_empty() {
-        return Err("-w requires -r".into());
+    if cfg.unprocessed.is_some() && cfg.rfiles.is_empty() && !cfg.live() {
+        return Err("-w requires -r or live capture".into());
     }
     if cfg.post.any() && !cfg.store_output {
         return Err("post-processing requires storing output (it cannot be used with -FX)".into());
@@ -149,6 +149,13 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
         .split
         .then(|| split::Splitter::new(&cfg.outdir, demux.template().clone(), cfg.max_open));
     let mut ok = true;
+    if cfg.live() {
+        let engine: &mut dyn Engine = match splitter.as_mut() {
+            Some(s) => s,
+            None => &mut demux,
+        };
+        ok = read_live(engine, cfg, &mut late)?;
+    }
     for (paths, new_flows) in [(&cfg.rfiles, true), (&cfg.big_r_files, false)] {
         demux.start_new_flows = new_flows;
         for path in paths {
@@ -200,10 +207,10 @@ impl Late {
         }
     }
 
-    fn first_input_open(
+    fn first_input_open<T: pcap::Activated + ?Sized>(
         &mut self,
         cfg: &Config,
-        cap: &pcap::Capture<pcap::Offline>,
+        cap: &pcap::Capture<T>,
     ) -> Result<(), String> {
         if let (None, Some(path)) = (&self.unprocessed, &cfg.unprocessed) {
             let file = privs::create_file(path).map_err(|e| format!("{path}: {e}"))?;
@@ -314,11 +321,20 @@ fn read_file(
     }
 }
 
-fn read_packets(
+/// Capture from a device until a signal stops it.
+fn read_live(engine: &mut dyn Engine, cfg: &Config, late: &mut Late) -> Result<bool, String> {
+    let (device, mut cap) = input::live(cfg.device.as_deref(), cfg.promisc, cfg.buffer_timeout)?;
+    late.first_input_open(cfg, &cap)?;
+    log::debug(1, &format!("listening on {device}"));
+    let _wake = signals::wake_on_stop(&cap);
+    read_packets(engine, cfg, &device, &mut cap, &mut late.unprocessed)
+}
+
+fn read_packets<T: pcap::Activated + ?Sized>(
     engine: &mut dyn Engine,
     cfg: &Config,
     path: &str,
-    cap: &mut pcap::Capture<pcap::Offline>,
+    cap: &mut pcap::Capture<T>,
     unprocessed: &mut Option<pcapfile::Unprocessed>,
 ) -> Result<bool, String> {
     let linktype = cap.get_datalink().0;
@@ -337,6 +353,7 @@ fn read_packets(
         let packet = match cap.next_packet() {
             Ok(p) => p,
             Err(pcap::Error::NoMorePackets) => return Ok(true),
+            Err(pcap::Error::TimeoutExpired) => continue,
             Err(_) if signals::stopped() => return Ok(true),
             Err(e) => {
                 log::error(&format!("{path}: {e}"));

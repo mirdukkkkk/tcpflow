@@ -48,11 +48,11 @@ pub struct Unprocessed {
 
 impl Unprocessed {
     /// libpcap writes the header to `file` with the link type and snaplen of `first`,
-    /// the first input. The link type is the canonical LINKTYPE value (D20).
-    pub fn create(
+    /// the first input or the capture device. The link type is the canonical LINKTYPE value (D20).
+    pub fn create<T: pcap::Activated + ?Sized>(
         path: &str,
         file: std::fs::File,
-        first: &pcap::Capture<pcap::Offline>,
+        first: &pcap::Capture<T>,
     ) -> Result<Unprocessed, String> {
         use std::os::fd::IntoRawFd;
         // SAFETY: the descriptor is ours; libpcap takes ownership of it.

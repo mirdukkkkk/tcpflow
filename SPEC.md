@@ -49,7 +49,7 @@ Phase marks the order of implementation: **1** is the first release
 | `-r file` | Read packets from a capture file. Repeatable. `-` is stdin. | 1 |
 | `-R file` | Read a capture file, but only to finish flows that are already open. Processed after all `-r` files. Repeatable. | 1 |
 | `-l` | Treat non-option arguments as `-r` files instead of an expression. | 1 |
-| `-i iface` | Live capture on `iface`. Without `-i`, `-r`, `-R` or `-l`, capture on the first device libpcap reports. | 2 |
+| `-i iface` | Live capture on `iface` (section 3.1). Without `-r` or `-R` (or `-l` files), capture on the first device libpcap reports. `-i` with `-r` or `-R` is an error (D27). | 2 |
 | `-p` | Do not put the interface in promiscuous mode. | 2 |
 | `-o dir` | Output directory, default `.`. Created (one level) if missing. | 1 |
 | `-T template` | Flow file name template (section 7). If it has no `%c`, `%C%c` is appended. | 1 |
@@ -68,7 +68,7 @@ Phase marks the order of implementation: **1** is the first release
 | `-J` | Console output as JSON lines (section 9.3). Without `-C`, implies `-c` (D21). | 2 |
 | `-I` | Write a `.findx` packet index next to each flow file (section 10). | 1 |
 | `-K` | Write one pcap file per flow instead of reassembled data (section 11). | 2 |
-| `-w file` | Write IP packets that were not processed as TCP to a pcap file (section 12). | 2 |
+| `-w file` | Write IP packets that were not processed as TCP to a pcap file (section 12). Needs `-r` or live capture. | 2 |
 | `-a` | Enable all post-processing: HTTP and MD5. | 2 |
 | `-e name` | Enable a post-processor: `http`, `md5`, `netviz`. | 2 |
 | `-x name` | Disable a post-processor. | 2 |
@@ -104,6 +104,16 @@ Invalid options print usage to stderr and exit with status 1.
 - An input that cannot be opened is a fatal error (exit status 1). A
   read error in the middle of a file is reported, processing continues
   with the next file, and the final exit status is 1.
+
+### 3.1 Live capture
+
+Without input files, tcpflow captures on a device: the `-i` device, or
+the first one `pcap_findalldevs` reports. A device that cannot be opened
+is a fatal error (exit status 1) with the libpcap message. The capture
+uses snaplen 65536, promiscuous mode unless `-p`, and the read timeout
+`packet-buffer-timeout` (default 10 ms). `listening on <device>` is
+printed at debug level 1. Capture runs until SIGINT, SIGTERM or SIGHUP
+(D12); then flows are closed and the report is written as for a file.
 
 ## 4. Packet decoding
 
@@ -407,11 +417,12 @@ Frames the link layer drops (for example ARP on Ethernet, or an unknown
 `DLT_NULL` family) are not written. Packets of `-R` files that belong to
 no open flow are processed (and dropped) and are not written either.
 
-The file is created when the first `-r` file is opened. libpcap writes
-its header, with the link type and snaplen of that file, so pcapng,
-big-endian and compressed inputs work (D20). Each record holds the
-original timestamp, the captured length, the original length and the
-captured bytes. `-w` requires at least one `-r`.
+The file is created when the first `-r` file or the capture device is
+opened. libpcap writes its header, with the link type and snaplen of
+that input, so pcapng, big-endian and compressed inputs work (D20). Each
+record holds the original timestamp, the captured length, the original
+length and the captured bytes. `-w` requires at least one `-r` or live
+capture (D26).
 
 ## 13. Post-processing
 
@@ -609,7 +620,7 @@ Based on #281, with the problems found in its review fixed (D22–D24):
 | D9 | Flow file times use `futimes` with the flow start time; on failure a message is printed and processing continues. | Same, without the message unless debug level ≥ 1. |
 | D10 | `DLT_NULL` reads only the first byte of the family and compares it with the reading host's `AF_INET`/`AF_INET6`, so a macOS or BSD IPv6 capture, or any big-endian capture, is not decoded. | The family values of all common platforms are accepted, in either byte order. Fixed in 1.x as well (`fix/null-family`). |
 | D11 | `-Fc` replaces `%c` with `%C`, so the name loses the counter. A second flow with the same name makes the search for a free name loop forever. | Fixed in 1.x as well (`fix/fc-counter`); see section 7.2. |
-| D12 | `SIGTERM` and `SIGINT` only stop the packet loop; a process stuck elsewhere ignores them. | `SIGTERM` and `SIGINT` stop processing promptly; open flows are closed and the report is written. |
+| D12 | `SIGTERM`, `SIGINT` and `SIGHUP` only stop the packet loop; a process stuck elsewhere ignores them. | They stop processing promptly; open flows are closed and the report is written. |
 | D13 | The MAC addresses in `report.xml` are copied from the first 12 bytes of every frame, so loopback and raw IP captures get garbage `mac_daddr`/`mac_saddr` values. | MAC addresses only for Ethernet. Fixed in 1.x as well (`fix/report-mac`). |
 | D14 | An IPv6 packet with payload length 0 has no TCP data. | The captured length is used, as for IPv4 (section 4.3). |
 | D15 | Report timestamps drop the fraction when the microseconds are 0 (`…:41Z` instead of `…:41.000000Z`, #206). | Always 6 digits of microseconds. |
@@ -623,6 +634,8 @@ Based on #281, with the problems found in its review fixed (D22–D24):
 | D23 | (#281) The report and the `-w` file are handed over even if they existed or are devices: `-U nobody -w /dev/null` gives `/dev/null` to `nobody`. | Only outputs tcpflow created are handed over. |
 | D24 | (#281) A numeric uid without a passwd entry keeps gid 0. | An explicit group is required. |
 | D25 | (#281) With `-z`, the output directory and the report are created relative to the working directory before the chroot, but flow files relative to the chroot. | `-o` is inside the chroot for both (section 16). |
+| D26 | `-w` with live capture fails: "currently the -w option requires the -r option". | Allowed; the header has the device's link type (section 12). |
+| D27 | `-i` with `-r` or `-R` is silently ignored and the files are read. | An error. |
 
 Differences that only affect level C outputs are not listed.
 

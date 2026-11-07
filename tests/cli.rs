@@ -41,3 +41,20 @@ fn json_alone_implies_console_output() {
     assert_eq!(files, 0, "-J writes no flow files and no report (D21)");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn live_capture_does_not_mix_with_files() {
+    let pcap = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/test1.pcap");
+    for args in [["-i", "lo", "-r", pcap], ["-i", "lo", "-R", pcap]] {
+        let out = tcpflow(&args);
+        assert_eq!(out.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&out.stderr).contains("-i cannot be used with -r or -R"));
+    }
+}
+
+#[test]
+fn unknown_device() {
+    let out = tcpflow(&["-c", "-i", "tcpflow-no-such-device"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stderr).starts_with("tcpflow: tcpflow-no-such-device: "));
+}

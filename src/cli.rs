@@ -22,6 +22,12 @@ pub struct Config {
     pub rfiles: Vec<String>,
     pub big_r_files: Vec<String>,
     pub expression: String,
+    /// `-i`: live capture device; `None` is libpcap's first device.
+    pub device: Option<String>,
+    /// Off with `-p`.
+    pub promisc: bool,
+    /// `-S packet-buffer-timeout`, in milliseconds.
+    pub buffer_timeout: i32,
     pub outdir: String,
     pub template: String,
     pub store_output: bool,
@@ -48,6 +54,13 @@ pub struct Config {
     pub command_line: String,
 }
 
+impl Config {
+    /// Without input files, tcpflow captures live (SPEC.md 2).
+    pub fn live(&self) -> bool {
+        self.rfiles.is_empty() && self.big_r_files.is_empty()
+    }
+}
+
 pub enum Action {
     Run(Box<Config>),
     Version,
@@ -57,7 +70,7 @@ pub enum Action {
 const MAX_SEEK: u32 = 16 * 1024 * 1024;
 
 /// Options that SPEC.md assigns to later phases.
-const NOT_YET: &[char] = &['i', 'p', 'L'];
+const NOT_YET: &[char] = &['L'];
 
 /// Turn a post-processor on or off by name (`-e`, `-x`, `-E`).
 fn set_post(post: &mut post::Options, name: &str, on: bool) -> Result<(), String> {
@@ -97,6 +110,9 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
         rfiles: Vec::new(),
         big_r_files: Vec::new(),
         expression: String::new(),
+        device: None,
+        promisc: true,
+        buffer_timeout: 10,
         outdir: ".".into(),
         template: DEFAULT_TEMPLATE.into(),
         store_output: true,
@@ -136,6 +152,8 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
             Short('r') => cfg.rfiles.push(value(&mut p)?),
             Short('R') => cfg.big_r_files.push(value(&mut p)?),
             Short('l') => list_mode = true,
+            Short('i') => cfg.device = Some(value(&mut p)?),
+            Short('p') => cfg.promisc = false,
             Short('o') => cfg.outdir = value(&mut p)?,
             Short('T') => {
                 cfg.template = value(&mut p)?;
@@ -196,6 +214,7 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
                     }
                     "tdelta" => cfg.tdelta = number('S', val)?,
                     "tcp_timeout" => cfg.tcp_timeout = Some(number('S', val)?),
+                    "packet-buffer-timeout" => cfg.buffer_timeout = number('S', val)?,
                     _ => eprintln!("tcpflow: -S: unknown parameter '{name}'"),
                 }
             }
@@ -237,8 +256,10 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
 
 pub fn usage(level: u32) {
     println!("TCPFLOW version {VERSION}\n");
-    println!("usage: tcpflow [-BcCDhIJqsvV0g] [-b max_bytes] [-d debug_level] [-f max_fds]");
-    println!("       [-F[ctTXMkmg]] [-l] [-m min_bytes] [-o outdir] [-r file] [-R file]");
+    println!("usage: tcpflow [-BcCDhIJpqsvV0g] [-b max_bytes] [-d debug_level] [-f max_fds]");
+    println!(
+        "       [-F[ctTXMkmg]] [-i iface] [-l] [-m min_bytes] [-o outdir] [-r file] [-R file]"
+    );
     println!("       [-S name=value] [-T template] [-U user[:group]] [-w file] [-X xmlfile]");
     println!("       [-z chroot_dir] [expression]");
     if level > 1 {
