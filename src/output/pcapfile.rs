@@ -22,7 +22,19 @@ impl<'a> Record<'a> {
     }
 }
 
-/// The classic pcap file header, in this host's byte order.
+/// The LINKTYPE value written to files for a DLT value from libpcap: raw IP has
+/// different DLT values on different systems, but one LINKTYPE (D40).
+pub fn linktype(dlt: u32) -> u32 {
+    const LINKTYPE_RAW: u32 = 101;
+    match dlt {
+        12 if !cfg!(target_os = "openbsd") => LINKTYPE_RAW,
+        14 => LINKTYPE_RAW,
+        other => other,
+    }
+}
+
+/// The classic pcap file header, in this host's byte order. `linktype` is a
+/// LINKTYPE value.
 pub fn write_header(out: &mut impl Write, linktype: u32, snaplen: u32) -> io::Result<()> {
     out.write_all(&0xa1b2c3d4u32.to_ne_bytes())?;
     out.write_all(&2u16.to_ne_bytes())?;

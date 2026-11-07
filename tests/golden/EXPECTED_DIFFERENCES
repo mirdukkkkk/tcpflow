@@ -26,3 +26,5 @@ tests/test5-lines-randomized2.pcap:bins D37 the shifted flow closes on its FIN a
 tests/test5-lines-randomized2.pcap:template D37 the shifted flow closes on its FIN and its filesize includes the shift
 tests/test5-lines-randomized2.pcap:limit D37 the shifted flow closes on its FIN and its filesize includes the shift
 tests/test5-lines-randomized2.pcap:unprocessed D37 the shifted flow closes on its FIN and its filesize includes the shift
+tests/bug8.pcap:pcap D40 the -K file header has the canonical LINKTYPE_RAW (101) instead of the DLT value 12
+tests/test4.pcap:pcap D40 the -K file header has the canonical LINKTYPE_RAW (101) instead of the DLT value 12

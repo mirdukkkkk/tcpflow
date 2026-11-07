@@ -451,8 +451,13 @@ With `-K`, no reassembly is done. Each packet whose TCP ports can be read
 (at least 4 bytes of TCP header captured) is appended to the pcap file of
 its flow:
 
-- the name is the template expansion with counter 0, plus `.pcap`;
-- the pcap header uses the link type of the input and snaplen 65535;
+- the name is the template expansion with counter 0, plus `.pcap`.
+  Flows whose names are the same (a template without ports, for
+  example) share one file;
+- the pcap header uses the link type of the input, as its canonical
+  LINKTYPE value (raw IP is 101 on every system, D40), and snaplen
+  65535. With several inputs, a packet whose link type differs from the
+  file's is not written to it;
 - each record holds the original timestamp, captured length, original
   length and captured bytes.
 
@@ -746,6 +751,7 @@ Based on #281, with the problems found in its review fixed (D22–D24):
 | D37 | A shift for data before the guessed ISN (6.2) keeps old bytes in front of the moved content, forgets the seen ranges, so the FIN no longer closes the flow, and leaves the logical size unchanged, so `filesize` is too small. Shifts are unlimited: a few packets make a file of hundreds of megabytes. | Section 6.2. |
 | D38 | Compressed HTTP bodies are decompressed without a limit: a 1 MB response can become a body file of a gigabyte or more. | `http_max_body` (section 13.2). |
 | D39 | With `-c`, `-C` or `-FX` the stream position does not advance: a flow longer than `-m` is split into a new flow at every segment after the limit, and a FIN never closes a flow. | The stream is followed the same way in every mode (sections 5, 6); only the file writes are left out. |
+| D40 | `-K` files whose expanded names are the same overwrite each other, and lose packets. The header has the DLT value of the reading system (12 for raw IP on Linux) instead of the LINKTYPE value (101). | Such flows share one file (section 11); the header has the LINKTYPE value. |
 
 Differences that only affect level C outputs are not listed.
 

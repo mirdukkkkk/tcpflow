@@ -80,3 +80,40 @@ fn split_files_survive_running_out_of_descriptors() {
     assert_eq!(count("few"), count("plain"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn flows_with_the_same_file_name_share_the_file() {
+    let dir =
+        std::env::temp_dir().join(format!("tcpflow-test-split-shared-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let pcap = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/test1.pcap");
+    let packets = |out: &str| -> usize {
+        std::fs::read_dir(dir.join(out))
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().is_some_and(|x| x == "pcap"))
+            .map(|p| {
+                let d = std::fs::read(&p).unwrap();
+                let (mut at, mut n) = (24, 0);
+                while at < d.len() {
+                    at += 16 + u32::from_le_bytes(d[at + 8..at + 12].try_into().unwrap()) as usize;
+                    n += 1;
+                }
+                n
+            })
+            .sum()
+    };
+    let run = |args: &[&str]| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_tcpflow"))
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .unwrap()
+    };
+    assert!(run(&["-K", "-o", "plain", "-r", pcap]).success());
+    // %A alone: every flow from one address goes to the same file
+    assert!(run(&["-K", "-T", "%A", "-o", "shared", "-r", pcap]).success());
+    assert_eq!(packets("shared"), packets("plain"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
