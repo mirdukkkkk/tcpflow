@@ -161,6 +161,8 @@ struct SavedFlow {
 pub struct Demux<'a> {
     /// `tcp_cmd`, `http_cmd` and the alert descriptors (SPEC.md 13.5).
     pub hooks: crate::hooks::Hooks,
+    /// `-L`: held while a segment is printed (SPEC.md 9.4).
+    pub lock: Option<crate::semlock::SemLock>,
     opt: Options,
     sink: &'a mut dyn FlowSink,
     flows: HashMap<FlowKey, Flow>,
@@ -181,6 +183,7 @@ impl<'a> Demux<'a> {
             opt,
             sink,
             hooks: crate::hooks::Hooks::none(),
+            lock: None,
             flows: HashMap::new(),
             saved: VecDeque::new(),
             start_new_flows: true,
@@ -417,14 +420,19 @@ impl<'a> Demux<'a> {
         }
         let to_server = f.direction == Direction::ClientToServer;
         let name = f.path.as_deref().unwrap();
+        let held = self.lock.as_ref().map(|l| l.hold()).transpose()?;
+        let mut out = io::stdout().lock();
         console::print(
-            &mut io::stdout().lock(),
+            &mut out,
             copt,
             key,
             name,
             to_server,
             &data[..length as usize],
         )?;
+        if held.is_some() {
+            out.flush()?;
+        }
         f.last_byte += length;
         Ok(())
     }

@@ -52,6 +52,8 @@ pub struct Config {
     pub tdelta: i64,
     pub tcp_timeout: Option<i64>,
     pub hooks: crate::hooks::Options,
+    /// `-L`: semaphore name (SPEC.md 9.4).
+    pub lock: Option<String>,
     pub command_line: String,
 }
 
@@ -69,9 +71,6 @@ pub enum Action {
 }
 
 const MAX_SEEK: u32 = 16 * 1024 * 1024;
-
-/// Options that SPEC.md assigns to later phases.
-const NOT_YET: &[char] = &['L'];
 
 /// Turn a post-processor on or off by name (`-e`, `-x`, `-E`).
 fn set_post(post: &mut post::Options, name: &str, on: bool) -> Result<(), String> {
@@ -142,6 +141,7 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
             tcp_alert_fd: None,
             http_alert_fd: None,
         },
+        lock: None,
         command_line,
     };
     let mut help = 0;
@@ -210,6 +210,7 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
             Short('U') | Long("relinquish-privileges") => cfg.relinquish = Some(value(&mut p)?),
             Short('z') | Long("chroot") => cfg.chroot = Some(value(&mut p)?),
             Short('q') => cfg.quiet = true,
+            Short('L') => cfg.lock = Some(value(&mut p)?),
             Short('S') => {
                 let v = value(&mut p)?;
                 let Some((name, val)) = v.split_once('=') else {
@@ -237,9 +238,6 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
                 set_post(&mut cfg.post, &value(&mut p)?, true)?;
             }
             Short('Z') => cfg.post.decompress = false,
-            Short(c) if NOT_YET.contains(&c) => {
-                return Err(format!("-{c} is not implemented yet"));
-            }
             Value(v) => rest.push(
                 v.into_string()
                     .map_err(|_| "argument is not valid UTF-8".to_string())?,
@@ -269,7 +267,7 @@ pub fn usage(level: u32) {
     println!("TCPFLOW version {VERSION}\n");
     println!("usage: tcpflow [-BcCDhIJpqsvV0g] [-b max_bytes] [-d debug_level] [-f max_fds]");
     println!(
-        "       [-F[ctTXMkmg]] [-i iface] [-l] [-m min_bytes] [-o outdir] [-r file] [-R file]"
+        "       [-F[ctTXMkmg]] [-i iface] [-l] [-L semlock] [-m min_bytes] [-o outdir] [-r file] [-R file]"
     );
     println!("       [-S name=value] [-T template] [-U user[:group]] [-w file] [-X xmlfile]");
     println!("       [-z chroot_dir] [expression]");

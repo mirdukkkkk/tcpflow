@@ -11,6 +11,7 @@ mod pcapfile;
 mod post;
 mod privs;
 mod report;
+mod semlock;
 mod signals;
 mod split;
 mod stream;
@@ -147,6 +148,11 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
     );
 
     demux.hooks = hooks::Hooks::new(cfg.hooks.clone())?;
+    demux.lock = cfg
+        .lock
+        .as_deref()
+        .map(semlock::SemLock::open)
+        .transpose()?;
     signals::install();
     let mut splitter = cfg
         .split

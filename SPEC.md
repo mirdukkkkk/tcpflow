@@ -82,7 +82,7 @@ Phase marks the order of implementation: **1** is the first release
 | `-v`, `--verbose` | Same as `-d 10`. | 1 |
 | `-V`, `--version` | Print `TCPFLOW <version>` and exit with status 0. | 1 |
 | `-h`, `--help` | Print usage and exit with status 0. `-hh` prints more. | 1 |
-| `-L name` | Serialise console output across processes with a named semaphore. | 3 |
+| `-L name` | Serialise console output across processes with a named semaphore (section 9.4). | 3 |
 | `-H` | Print post-processor details. Replaced by `--help`. | – |
 | `-A` | Deprecated since 1.5. | – |
 | `-e python` | Removed in 1.6.0 (#214). | – |
@@ -408,6 +408,17 @@ Addresses and ports come from the flow key, addresses in their normal
 text form (D4). `-D` takes precedence over `-J`; `-B` and `-s` have no
 effect. `-g` and `-0` work as in 9.1.
 
+### 9.4 Semaphore (`-L`)
+
+With `-L name`, the POSIX named semaphore `name` is opened at start,
+created with the value 1 (mode 0666 minus the umask) if it does not
+exist. It is taken before each segment is printed and released after the
+segment is written to stdout, so several tcpflow processes that share a
+terminal or pipe never mix their segments. A semaphore that cannot be
+opened is a fatal error (D34). Without console output, `-L` has no
+effect. A process killed while it holds the semaphore leaves it taken;
+remove it with `sem_unlink`, or on Linux `/dev/shm/sem.<name>`.
+
 ## 10. Packet index (`-I`)
 
 For each flow file `F`, the index file is `F.findx`. It has one line per
@@ -700,6 +711,7 @@ Based on #281, with the problems found in its review fixed (D22–D24):
 | D31 | The child that runs `tcp_cmd` or `http_cmd` ends with `exit()`, which moves the read position of the input file it shares with tcpflow, so tcpflow reads garbage (`invalid packet capture length`) and stops early. | Commands do not touch tcpflow's files. Fixed in 1.x as well (`fix/cmd-exit`). |
 | D32 | `open` is written again each time a flow file is reopened after the open file limit; a flow without a file writes `close` with an empty path. | `open` once, when the file is created; nothing for flows without a file. |
 | D33 | tcpflow exits without waiting for running commands. The limit of 10 counts any finished child, of either kind. | tcpflow waits for its commands; each kind has its own limit. |
+| D34 | `-L` always fails with `(null): attempt to create lock pthreads not present`, because `configure` never defines `HAVE_PTHREAD_H`; the semaphore calls themselves are behind `HAVE_PTHREAD`, which is never defined either. A failing `sem_open` is not checked. | Section 9.4. |
 
 Differences that only affect level C outputs are not listed.
 
