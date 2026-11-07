@@ -70,7 +70,7 @@ Phase marks the order of implementation: **1** is the first release
 | `-K` | Write one pcap file per flow instead of reassembled data (section 11). | 2 |
 | `-w file` | Write IP packets that were not processed as TCP to a pcap file (section 12). Needs `-r` or live capture. | 2 |
 | `-a` | Enable all post-processing: HTTP and MD5. | 2 |
-| `-e name` | Enable a post-processor: `http`, `md5`, `netviz`. | 2 |
+| `-e name` | Enable a post-processor: `http`, `md5`. `netviz`, `tcpdemux` and `wifiviz` are accepted and do nothing (section 13.3). | 2 |
 | `-x name` | Disable a post-processor. | 2 |
 | `-E name` | Disable all post-processors, then enable `name`. | 2 |
 | `-Z` | Do not decompress gzip or deflate HTTP bodies. | 2 |
@@ -508,11 +508,10 @@ Each body file adds to the flow's `<fileobject>`:
 
 `O` is the offset of the body in the flow file.
 
-### 13.3 netviz (`netviz`, `-a`)
+### 13.3 netviz
 
-Writes a one-page PDF summary `<outdir>/report.pdf`. Phase 3. The content
-should match 1.6.2 (time histogram, address and port histograms,
-packetfall); the rendering is level C.
+Not carried over (section 18, D35). `-e netviz` and `-x netviz` are
+accepted, so that existing command lines keep working, and do nothing.
 
 ### 13.4 Parameters (`-S`)
 
@@ -712,12 +711,15 @@ Based on #281, with the problems found in its review fixed (D22–D24):
 | D32 | `open` is written again each time a flow file is reopened after the open file limit; a flow without a file writes `close` with an empty path. | `open` once, when the file is created; nothing for flows without a file. |
 | D33 | tcpflow exits without waiting for running commands. The limit of 10 counts any finished child, of either kind. | tcpflow waits for its commands; each kind has its own limit. |
 | D34 | `-L` always fails with `(null): attempt to create lock pthreads not present`, because `configure` never defines `HAVE_PTHREAD_H`; the semaphore calls themselves are behind `HAVE_PTHREAD`, which is never defined either. A failing `sem_open` is not checked. | Section 9.4. Fixed in 1.x as well (`fix/semlock`). |
+| D35 | With `-a` or `-e netviz`, and when built with cairo, `report.pdf` is written: a one-page summary of the capture (time histogram, top addresses and ports). | No `report.pdf` (section 18). |
 
 Differences that only affect level C outputs are not listed.
 
 ## 18. Out of scope
 
 - IP fragment reassembly.
+- netviz, the one-page PDF summary `report.pdf` of 1.6.2 (D35). A text
+  or JSON summary with the same numbers may be added later.
 - The SQLite flow database and `-S` options of unused 1.6.2 code paths.
 - Windows (1.6.2 supported mingw builds; 2.0 targets Linux, macOS and the
   BSDs first).

@@ -81,7 +81,7 @@ fn set_post(post: &mut post::Options, name: &str, on: bool) -> Result<(), String
             post.md5 = on;
             post.http = on;
         }
-        // not implemented yet (SPEC.md 13.3); accepted so that -e all and -x netviz work
+        // not carried over (SPEC.md 13.3); accepted so that old command lines work
         "netviz" | "tcpdemux" | "wifiviz" => {}
         other => return Err(format!("unknown post-processor '{other}'")),
     }
