@@ -1,13 +1,11 @@
 //! `tcp_cmd`, `http_cmd`, `tcp_alert_fd` and `http_alert_fd` (SPEC.md 13.5).
 
 use std::collections::VecDeque;
-use std::fs::File;
-use std::io::Write;
-use std::mem::ManuallyDrop;
-use std::os::fd::FromRawFd;
-use std::process::{Child, Command};
+use std::process::Child;
 
 use crate::log;
+use crate::sys::command;
+use crate::sys::fd::CallerFd;
 
 /// At most this many commands of one kind run at a time.
 const MAX_RUNNING: usize = 10;
@@ -15,21 +13,16 @@ const MAX_RUNNING: usize = 10;
 /// A descriptor given by the caller for `open` and `close` lines.
 struct Alert {
     name: &'static str,
-    /// Not closed by tcpflow: the descriptor belongs to the caller, and tcp and
-    /// http may share it.
-    fd: Option<ManuallyDrop<File>>,
+    fd: Option<CallerFd>,
 }
 
 impl Alert {
     fn new(name: &'static str, fd: Option<i32>) -> Result<Alert, String> {
         let fd = match fd {
             None => None,
-            // SAFETY: fcntl only queries the descriptor.
-            Some(n) if n < 0 || unsafe { libc::fcntl(n, libc::F_GETFD) } < 0 => {
-                return Err(format!("{name}={n}: not an open descriptor"));
-            }
-            // SAFETY: the descriptor is open; ManuallyDrop keeps it open.
-            Some(n) => Some(ManuallyDrop::new(unsafe { File::from_raw_fd(n) })),
+            Some(n) => Some(
+                CallerFd::new(n).ok_or_else(|| format!("{name}={n}: not an open descriptor"))?,
+            ),
         };
         Ok(Alert { name, fd })
     }
@@ -62,14 +55,7 @@ impl Commands {
                 let _ = oldest.wait();
             }
         }
-        // the path is an argument of the shell, never parsed by it (D7)
-        match Command::new("/bin/sh")
-            .arg("-c")
-            .arg(format!("{cmd} \"$1\""))
-            .arg("tcpflow")
-            .arg(path)
-            .spawn()
-        {
+        match command::with_argument(cmd, path) {
             Ok(child) => self.running.push_back(child),
             Err(e) => log::error(&format!("cannot run {cmd}: {e}")),
         }

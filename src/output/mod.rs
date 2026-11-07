@@ -4,5 +4,4 @@ pub mod console;
 pub mod hooks;
 pub mod pcapfile;
 pub mod report;
-pub mod semlock;
 pub mod split;

@@ -15,8 +15,8 @@ use cli::{Action, Config};
 use flow::demux::{self, Demux, Flow, FlowSink, PacketMeta, Timestamp};
 use flow::naming::Template;
 use output::report::{Report, Summary};
-use output::{console, hooks, pcapfile, semlock, split};
-use sys::{privs, signals};
+use output::{console, hooks, pcapfile, split};
+use sys::{files, privs, semlock, signals};
 
 /// Reports nowhere, for `-c` and `-S enable_report=0`.
 struct NoReport;
@@ -95,7 +95,7 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
     // only when something is written there: -c alone creates no files (SPEC.md 2)
     let writes_files = cfg.store_output && !cfg.console.enabled;
     if cfg.split || writes_files || (cfg.enable_report && cfg.report_path.is_none()) {
-        let dir = privs::create_dir(&outdir)?;
+        let dir = files::create_dir(&outdir)?;
         late.hand_over(&dir)?;
     }
 
@@ -105,7 +105,7 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
             Some(p) => (p.clone(), true),
             None => (format!("{outdir}/report.xml"), false),
         };
-        let file = privs::create_file(&path, named).map_err(|e| format!("{path}: {e}"))?;
+        let file = files::create_file(&path, named).map_err(|e| format!("{path}: {e}"))?;
         late.hand_over(&file)?;
         Some(
             Report::create(file.handle, &cfg.command_line, cfg.tdelta)
@@ -206,7 +206,7 @@ struct Late {
 }
 
 impl Late {
-    fn hand_over<T: std::os::fd::AsFd>(&mut self, out: &privs::Output<T>) -> Result<(), String> {
+    fn hand_over<T: std::os::fd::AsFd>(&mut self, out: &files::Output<T>) -> Result<(), String> {
         match self.dropper.as_mut() {
             Some(d) => d.hand_over(out),
             None => Ok(()),
@@ -219,7 +219,7 @@ impl Late {
         cap: &pcap::Capture<T>,
     ) -> Result<(), String> {
         if let (None, Some(path)) = (&self.unprocessed, &cfg.unprocessed) {
-            let file = privs::create_file(path, true).map_err(|e| format!("{path}: {e}"))?;
+            let file = files::create_file(path, true).map_err(|e| format!("{path}: {e}"))?;
             self.hand_over(&file)?;
             self.unprocessed = Some(pcapfile::Unprocessed::create(path, file.handle, cap)?);
         }

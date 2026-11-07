@@ -2,7 +2,6 @@
 
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
-use std::net::IpAddr;
 
 use crate::flow::demux::{Flow, FlowSink, Timestamp};
 use crate::flow::naming::iso8601;
@@ -55,7 +54,7 @@ impl Report {
     }
 
     pub fn finish(mut self, s: &Summary) -> io::Result<()> {
-        let (utime, stime, maxrss) = rusage();
+        let (utime, stime, maxrss) = crate::sys::limits::usage();
         write!(
             self.out,
             "  <summary>\n\
@@ -96,10 +95,7 @@ impl FlowSink for Report {
         if let Some(mac) = f.link.mac_src.filter(|m| *m != [0; 6]) {
             write!(o, " mac_saddr='{}'", mac_text(mac))?;
         }
-        let family = match f.key.src {
-            IpAddr::V4(_) => libc::AF_INET,
-            IpAddr::V6(_) => libc::AF_INET6,
-        };
+        let family = crate::sys::address_family(&f.key.src);
         write!(
             o,
             " family='{family}' src_ipn='{}' dst_ipn='{}' srcport='{}' dstport='{}' packets='{}'",
@@ -163,20 +159,6 @@ pub fn escape(s: &str) -> String {
         }
     }
     out
-}
-
-fn rusage() -> (f64, f64, i64) {
-    // SAFETY: rusage is plain data, so all zeros is a valid value, and getrusage
-    // only writes to the struct it is given.
-    let ru = unsafe {
-        let mut ru: libc::rusage = std::mem::zeroed();
-        if libc::getrusage(libc::RUSAGE_SELF, &mut ru) != 0 {
-            return (0.0, 0.0, 0);
-        }
-        ru
-    };
-    let secs = |tv: libc::timeval| tv.tv_sec as f64 + tv.tv_usec as f64 / 1e6;
-    (secs(ru.ru_utime), secs(ru.ru_stime), ru.ru_maxrss as i64)
 }
 
 #[cfg(test)]

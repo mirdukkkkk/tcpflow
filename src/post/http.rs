@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::{self, BufRead, Read, Write};
 
 use crate::post::{Options, mime};
-use crate::sys::privs::output_file;
+use crate::sys::files::output_file;
 
 /// Flows shorter than this are not worth parsing.
 const MIN_SIZE: u64 = 80;

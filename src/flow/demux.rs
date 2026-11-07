@@ -13,7 +13,7 @@ use crate::flow::stream::{self, Seen};
 use crate::log;
 use crate::output::console;
 use crate::post;
-use crate::sys::privs::output_file;
+use crate::sys::files::{is_too_many_files, output_file};
 
 /// Packet timestamp: seconds and microseconds since the Unix epoch.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -172,7 +172,7 @@ pub struct Demux<'a> {
     /// `tcp_cmd`, `http_cmd` and the alert descriptors (SPEC.md 13.5).
     pub hooks: crate::output::hooks::Hooks,
     /// `-L`: held while a segment is printed (SPEC.md 9.4).
-    pub lock: Option<crate::output::semlock::SemLock>,
+    pub lock: Option<crate::sys::semlock::SemLock>,
     opt: Options,
     sink: &'a mut dyn FlowSink,
     flows: HashMap<FlowKey, Flow>,
@@ -726,22 +726,8 @@ fn with_path(e: io::Error, path: &Path) -> io::Error {
     io::Error::new(e.kind(), format!("cannot create {}: {e}", path.display()))
 }
 
-pub fn is_too_many_files(e: &io::Error) -> bool {
-    matches!(e.raw_os_error(), Some(libc::EMFILE) | Some(libc::ENFILE))
-}
-
 /// Default for `-f`: the process file limit minus a few descriptors (SPEC.md 8).
 pub fn default_max_open() -> usize {
-    let mut limit = libc::rlimit {
-        rlim_cur: 0,
-        rlim_max: 0,
-    };
-    // SAFETY: getrlimit only writes to the struct we pass.
-    let ok = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } == 0;
-    let n = if ok && limit.rlim_cur != libc::RLIM_INFINITY {
-        limit.rlim_cur as usize
-    } else {
-        256
-    };
+    let n = crate::sys::limits::open_files().map_or(256, |n| n.min(usize::MAX as u64) as usize);
     n.saturating_sub(6).max(1)
 }
