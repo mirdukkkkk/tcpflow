@@ -150,10 +150,24 @@ The IP total length `ip_len` is trusted with two exceptions:
 
 ### 4.3 IPv6
 
-The packet is ignored when fewer than 40 bytes are captured or the next
-header is not TCP. Extension headers are not followed (phase 3). The
-payload length is clamped to the captured bytes. A payload length of 0
-uses the captured length, as for IPv4.
+The payload length is clamped to the captured bytes. A payload length
+of 0 (TCP segmentation offload, or a jumbogram) uses the captured
+length, as for IPv4.
+
+Extension headers are followed to TCP (D28): Hop-by-Hop Options (0),
+Routing (43), Destination Options (60), each `(len + 1) × 8` bytes,
+Authentication (51), `(len + 2) × 4` bytes, and Fragment (44), 8 bytes.
+The TCP length is the payload length minus the extension headers.
+
+The packet is ignored when:
+
+- fewer than 40 bytes are captured;
+- a header other than these is reached before TCP, for example ESP (50),
+  No Next Header (59) or UDP;
+- an extension header does not fit in the payload (or the captured
+  bytes);
+- it is a fragment with a non-zero offset. The first fragment is
+  processed, as for IPv4.
 
 ### 4.4 TCP
 
@@ -636,13 +650,13 @@ Based on #281, with the problems found in its review fixed (D22–D24):
 | D25 | (#281) With `-z`, the output directory and the report are created relative to the working directory before the chroot, but flow files relative to the chroot. | `-o` is inside the chroot for both (section 16). |
 | D26 | `-w` with live capture fails: "currently the -w option requires the -r option". | Allowed; the header has the device's link type (section 12). |
 | D27 | `-i` with `-r` or `-R` is silently ignored and the files are read. | An error. |
+| D28 | An IPv6 packet whose next header is not TCP is not processed, so TCP after an extension header is lost (it goes to `-w`). | Extension headers are followed (section 4.3). |
 
 Differences that only affect level C outputs are not listed.
 
 ## 18. Out of scope
 
 - IP fragment reassembly.
-- IPv6 extension headers (phase 3).
 - The SQLite flow database and `-S` options of unused 1.6.2 code paths.
 - Windows (1.6.2 supported mingw builds; 2.0 targets Linux, macOS and the
   BSDs first).

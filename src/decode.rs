@@ -28,6 +28,11 @@ const ETHERTYPE_8021AD: u16 = 0x88a8;
 const ETHERTYPE_QINQ: u16 = 0x9100;
 const ETHERTYPE_MPLS: u16 = 0x8847;
 const IPPROTO_TCP: u8 = 6;
+const IP6_HOPOPTS: u8 = 0;
+const IP6_ROUTING: u8 = 43;
+const IP6_FRAGMENT: u8 = 44;
+const IP6_AH: u8 = 51;
+const IP6_DSTOPTS: u8 = 60;
 
 /// What the link layer tells us about a packet besides its IP payload.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -228,21 +233,46 @@ fn ip4_tcp(ip: &[u8]) -> Option<IpTcp<'_>> {
 }
 
 fn ip6_tcp(ip: &[u8]) -> Option<IpTcp<'_>> {
-    if ip.len() < 40 || ip[6] != IPPROTO_TCP {
+    if ip.len() < 40 {
         return None;
     }
     let mut payload_len = be16(ip, 4) as usize;
     if payload_len == 0 {
-        payload_len = ip.len() - 40;
+        payload_len = ip.len() - 40; // TSO or a jumbogram
     }
     let end = (40 + payload_len).min(ip.len());
+    let start = ip6_skip_extensions(&ip[..end], ip[6], 40)?;
     let src: [u8; 16] = ip[8..24].try_into().unwrap();
     let dst: [u8; 16] = ip[24..40].try_into().unwrap();
     Some((
         IpAddr::V6(Ipv6Addr::from(src)),
         IpAddr::V6(Ipv6Addr::from(dst)),
-        &ip[40..end],
+        &ip[start..end],
     ))
+}
+
+/// Follow the extension headers from `next` at `at` to TCP; returns where TCP
+/// starts (SPEC.md 4.3).
+fn ip6_skip_extensions(ip: &[u8], mut next: u8, mut at: usize) -> Option<usize> {
+    loop {
+        let len = match next {
+            IPPROTO_TCP => return Some(at),
+            IP6_HOPOPTS | IP6_ROUTING | IP6_DSTOPTS => (*ip.get(at + 1)? as usize + 1) * 8,
+            IP6_AH => (*ip.get(at + 1)? as usize + 2) * 4,
+            IP6_FRAGMENT => {
+                if ip.len() < at + 8 || be16(ip, at + 2) & 0xfff8 != 0 {
+                    return None; // not the first fragment
+                }
+                8
+            }
+            _ => return None, // ESP, no next header, or not TCP
+        };
+        if ip.len() < at + len {
+            return None;
+        }
+        next = ip[at];
+        at += len;
+    }
 }
 
 fn decode_tcp<'a>(src: IpAddr, dst: IpAddr, tcp: &'a [u8], link: LinkInfo) -> Decoded<'a> {
@@ -425,6 +455,93 @@ mod tests {
         assert_eq!(s.src, "::1".parse::<IpAddr>().unwrap());
         assert_eq!(s.dst, "::2".parse::<IpAddr>().unwrap());
         assert_eq!(s.seq, 99);
+    }
+
+    /// IPv6 to ::2 from ::1 with `ext` (extension headers, from `next`) before TCP.
+    fn ip6(next: u8, ext: &[u8], tcp: &[u8]) -> Vec<u8> {
+        let mut ip = vec![0u8; 40];
+        ip[0] = 0x60;
+        ip[4..6].copy_from_slice(&((ext.len() + tcp.len()) as u16).to_be_bytes());
+        ip[6] = next;
+        ip[23] = 1;
+        ip[39] = 2;
+        ip.extend_from_slice(ext);
+        ip.extend_from_slice(tcp);
+        ip
+    }
+
+    /// One extension header: `next`, the length byte, then zeros up to `size` bytes.
+    fn ext(next: u8, len: u8, size: usize) -> Vec<u8> {
+        let mut h = vec![0u8; size];
+        h[0] = next;
+        h[1] = len;
+        h
+    }
+
+    fn payload(d: Decoded<'_>) -> Vec<u8> {
+        segment(d).0.payload.to_vec()
+    }
+
+    #[test]
+    fn ipv6_extension_headers_are_followed() {
+        let t = tcp(TH_ACK, 7, b"data");
+        let hop = ext(IP6_ROUTING, 0, 8);
+        let routing = ext(IP6_DSTOPTS, 2, 24);
+        let dst = ext(IP6_AH, 1, 16);
+        let ah = ext(IPPROTO_TCP, 2, 16);
+        let chain = [hop, routing, dst, ah].concat();
+        assert_eq!(
+            payload(decode(dlt::RAW, &ip6(IP6_HOPOPTS, &chain, &t))),
+            b"data"
+        );
+        let p = decode_ports(dlt::RAW, &ip6(IP6_HOPOPTS, &chain, &t)).unwrap();
+        assert_eq!((p.sport, p.dport), (40000, 80));
+    }
+
+    #[test]
+    fn ipv6_fragments() {
+        let t = tcp(TH_ACK, 7, b"data");
+        let frag = |offset_and_flags: u16| {
+            let mut h = ext(IPPROTO_TCP, 0, 8);
+            h[2..4].copy_from_slice(&offset_and_flags.to_be_bytes());
+            h
+        };
+        // the first fragment (more fragments follow) and an atomic fragment
+        for first in [0x0001, 0x0000] {
+            let f = ip6(IP6_FRAGMENT, &frag(first), &t);
+            assert_eq!(payload(decode(dlt::RAW, &f)), b"data");
+        }
+        let later = ip6(IP6_FRAGMENT, &frag(185 << 3), &t);
+        assert_eq!(decode(dlt::RAW, &later), Decoded::UnprocessedIp);
+    }
+
+    #[test]
+    fn ipv6_without_tcp_is_unprocessed() {
+        let t = tcp(TH_ACK, 7, b"data");
+        for (next, chain) in [
+            (50, vec![0u8; 8]),           // ESP
+            (59, vec![]),                 // no next header
+            (IP6_DSTOPTS, ext(17, 0, 8)), // UDP after an option header
+            (IP6_DSTOPTS, ext(59, 0, 8)),
+        ] {
+            let f = ip6(next, &chain, &t);
+            assert_eq!(decode(dlt::RAW, &f), Decoded::UnprocessedIp, "{next}");
+        }
+    }
+
+    #[test]
+    fn truncated_ipv6_extension_header_is_unprocessed() {
+        // the header claims 24 bytes, but the payload ends after 16
+        let f = ip6(IP6_DSTOPTS, &ext(IPPROTO_TCP, 2, 16), &[]);
+        assert_eq!(decode(dlt::RAW, &f), Decoded::UnprocessedIp);
+        // the header fits the capture but not the payload length
+        let mut f = ip6(IP6_DSTOPTS, &ext(IPPROTO_TCP, 2, 24), &tcp(TH_ACK, 7, b""));
+        f[4..6].copy_from_slice(&16u16.to_be_bytes());
+        assert_eq!(decode(dlt::RAW, &f), Decoded::UnprocessedIp);
+        // only the first byte of the header is captured
+        let mut f = ip6(IP6_HOPOPTS, &[IPPROTO_TCP], &[]);
+        f[4..6].copy_from_slice(&8u16.to_be_bytes());
+        assert_eq!(decode(dlt::RAW, &f), Decoded::UnprocessedIp);
     }
 
     #[test]
