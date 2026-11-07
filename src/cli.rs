@@ -51,6 +51,7 @@ pub struct Config {
     pub debug: i32,
     pub tdelta: i64,
     pub tcp_timeout: Option<i64>,
+    pub hooks: crate::hooks::Options,
     pub command_line: String,
 }
 
@@ -135,6 +136,12 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
         debug: 1,
         tdelta: 0,
         tcp_timeout: None,
+        hooks: crate::hooks::Options {
+            tcp_cmd: None,
+            http_cmd: None,
+            tcp_alert_fd: None,
+            http_alert_fd: None,
+        },
         command_line,
     };
     let mut help = 0;
@@ -215,6 +222,10 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
                     "tdelta" => cfg.tdelta = number('S', val)?,
                     "tcp_timeout" => cfg.tcp_timeout = Some(number('S', val)?),
                     "packet-buffer-timeout" => cfg.buffer_timeout = number('S', val)?,
+                    "tcp_cmd" => cfg.hooks.tcp_cmd = Some(val.to_string()),
+                    "http_cmd" => cfg.hooks.http_cmd = Some(val.to_string()),
+                    "tcp_alert_fd" => cfg.hooks.tcp_alert_fd = Some(number('S', val)?),
+                    "http_alert_fd" => cfg.hooks.http_alert_fd = Some(number('S', val)?),
                     _ => eprintln!("tcpflow: -S: unknown parameter '{name}'"),
                 }
             }

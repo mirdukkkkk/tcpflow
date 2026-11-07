@@ -2,6 +2,7 @@ mod cli;
 mod console;
 mod decode;
 mod demux;
+mod hooks;
 mod http;
 mod input;
 mod mime;
@@ -145,6 +146,7 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
         sink,
     );
 
+    demux.hooks = hooks::Hooks::new(cfg.hooks.clone())?;
     signals::install();
     let mut splitter = cfg
         .split
@@ -176,6 +178,7 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
         w.finish()?;
     }
     demux.close_all().map_err(|e| e.to_string())?;
+    demux.hooks.finish();
     let summary = Summary {
         total_flows: demux.flows_created(),
         total_packets: demux.packets,

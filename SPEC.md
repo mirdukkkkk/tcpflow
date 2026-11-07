@@ -510,12 +510,34 @@ packetfall); the rendering is level C.
 | `enable_report=0` | Do not write the DFXML report. | 1 |
 | `tdelta=N` | Add `N` seconds to every packet timestamp. | 1 |
 | `tcp_timeout=N` | Close flows idle for more than `N` seconds (section 5.4). | 1 |
-| `tcp_cmd=CMD` | After a flow is closed, run `CMD` with the flow file path as one extra argument (D7). At most 10 at a time. | 2 |
+| `tcp_cmd=CMD` | After a flow is closed, run `CMD` with the flow file path as one extra argument (section 13.5, D7). | 2 |
 | `http_cmd=CMD` | The same for each HTTP body file. | 2 |
-| `tcp_alert_fd=N`, `http_alert_fd=N` | Write `open\t<path>` and `close\t<path>` lines to descriptor `N`. | 3 |
+| `tcp_alert_fd=N`, `http_alert_fd=N` | Write `open\t<path>` and `close\t<path>` lines to descriptor `N` (section 13.5). | 3 |
 | `packet-buffer-timeout=N` | libpcap read timeout in milliseconds for live capture. | 2 |
 
 An unknown parameter name is a warning, not an error.
+
+### 13.5 Commands and alerts
+
+- `tcp_alert_fd=N`: `open\t<path>\n` when a flow file is created, and
+  `close\t<path>\n` when the flow is closed. Reopening a file after the
+  open file limit (section 8) writes nothing (D32). Flows without a file
+  write nothing.
+- `http_alert_fd=N`: `open` and `close` lines for each HTTP body file
+  that is kept (section 13.2). Bodies are extracted when their flow is
+  closed, so the lines of a body come together, before the `close` of
+  its flow.
+- `N` must be an open descriptor when tcpflow starts, otherwise it is a
+  fatal error. tcpflow never closes it, and `tcp_alert_fd` and
+  `http_alert_fd` may be the same. After a failed write, an error is
+  printed and nothing more is written to it.
+- `tcp_cmd=CMD` and `http_cmd=CMD` run `sh -c 'CMD "$1"' tcpflow PATH`
+  for each closed flow file and each kept body file, after its alert
+  lines (D7). At most 10 commands of each kind run at a time; tcpflow
+  waits for the oldest one before starting another. Before exiting,
+  tcpflow waits for all of them (D33). A command that cannot be started
+  is reported; processing continues.
+- With `-K`, no commands are run and no alerts are written, as in 1.6.2.
 
 ## 14. Report (`report.xml`)
 
@@ -675,6 +697,9 @@ Based on #281, with the problems found in its review fixed (D22–D24):
 | D28 | An IPv6 packet whose next header is not TCP is not processed, so TCP after an extension header is lost (it goes to `-w`). | Extension headers are followed (section 4.3). |
 | D29 | The last 4 bytes of every 802.11 frame are taken as the FCS. With the default `check_fcs=1`, a frame without a valid FCS is dropped, so a capture without FCS (as many drivers deliver it) yields nothing; with `check_fcs=0` every packet loses 4 bytes. `DLT_IEEE802_11` (105) is parsed as radiotap and yields nothing. | The FCS is detected (section 4.1.1). 105 fixed in 1.x as well (`fix/ieee80211-dlt`). |
 | D30 | QoS is recognised only for subtype 8; HT control and the radiotap DATAPAD flag are not handled, so the LLC header is looked for at the wrong place. | Section 4.1.1. |
+| D31 | The child that runs `tcp_cmd` or `http_cmd` ends with `exit()`, which moves the read position of the input file it shares with tcpflow, so tcpflow reads garbage (`invalid packet capture length`) and stops early. | Commands do not touch tcpflow's files. Fixed in 1.x as well (`fix/cmd-exit`). |
+| D32 | `open` is written again each time a flow file is reopened after the open file limit; a flow without a file writes `close` with an empty path. | `open` once, when the file is created; nothing for flows without a file. |
+| D33 | tcpflow exits without waiting for running commands. The limit of 10 counts any finished child, of either kind. | tcpflow waits for its commands; each kind has its own limit. |
 
 Differences that only affect level C outputs are not listed.
 

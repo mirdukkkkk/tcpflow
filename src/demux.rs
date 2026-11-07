@@ -159,6 +159,8 @@ struct SavedFlow {
 }
 
 pub struct Demux<'a> {
+    /// `tcp_cmd`, `http_cmd` and the alert descriptors (SPEC.md 13.5).
+    pub hooks: crate::hooks::Hooks,
     opt: Options,
     sink: &'a mut dyn FlowSink,
     flows: HashMap<FlowKey, Flow>,
@@ -178,6 +180,7 @@ impl<'a> Demux<'a> {
         Demux {
             opt,
             sink,
+            hooks: crate::hooks::Hooks::none(),
             flows: HashMap::new(),
             saved: VecDeque::new(),
             start_new_flows: true,
@@ -541,6 +544,9 @@ impl<'a> Demux<'a> {
                     } else {
                         None
                     };
+                    if is_new {
+                        self.hooks.flow_opened(&path);
+                    }
                     let f = self.flows.get_mut(key).unwrap();
                     f.path = Some(path);
                     f.created = true;
@@ -632,6 +638,10 @@ impl<'a> Demux<'a> {
             _ => post::Results::default(),
         };
         self.sink.flow_closed(&flow, &results)?;
+        if let (true, Some(path)) = (flow.created, &flow.path) {
+            let bodies = results.http.iter().flatten().map(|b| b.path.as_str());
+            self.hooks.flow_closed(path, bodies);
+        }
         if self.saved.len() > SAVED_FLOWS {
             self.saved.pop_front();
         }
