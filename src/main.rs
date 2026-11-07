@@ -325,11 +325,11 @@ fn read_file(
 
 /// Capture from a device until a signal stops it.
 fn read_live(engine: &mut dyn Engine, cfg: &Config, late: &mut Late) -> Result<bool, String> {
-    let (device, mut cap) = input::live(cfg.device.as_deref(), cfg.promisc, cfg.buffer_timeout)?;
+    let (device, cap) = input::live(cfg.device.as_deref(), cfg.promisc, cfg.buffer_timeout)?;
     late.first_input_open(cfg, &cap)?;
     log::debug(1, &format!("listening on {device}"));
-    let _wake = signals::wake_on_stop(&cap);
-    read_packets(engine, cfg, &device, &mut cap, &mut late.unprocessed)
+    let mut cap = signals::wake_on_stop(cap);
+    read_packets(engine, cfg, &device, cap.capture(), &mut late.unprocessed)
 }
 
 fn read_packets<T: pcap::Activated + ?Sized>(

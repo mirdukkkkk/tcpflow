@@ -3,7 +3,7 @@
 use std::ffi::{CStr, CString};
 use std::fs::{File, OpenOptions};
 use std::io;
-use std::os::fd::{AsFd, AsRawFd, OwnedFd};
+use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::fs::OpenOptionsExt;
 
 /// Who to become.
@@ -22,61 +22,69 @@ struct Passwd {
     name: CString,
 }
 
-fn lookup_user(name: &str) -> Option<Passwd> {
-    by_user(|pw, buf, res| {
-        let name = CString::new(name).ok()?;
-        // SAFETY: all pointers are valid for the call; buf outlives the result.
-        unsafe { libc::getpwnam_r(name.as_ptr(), pw, buf.as_mut_ptr(), buf.len(), res) };
-        Some(())
-    })
+fn lookup_user(name: &str) -> io::Result<Option<Passwd>> {
+    let Ok(name) = CString::new(name) else {
+        return Ok(None);
+    };
+    // SAFETY: valid pointers, and the buffer size passed is the buffer's.
+    get_r(
+        |e, b, n, r| unsafe { libc::getpwnam_r(name.as_ptr(), e, b, n, r) },
+        passwd,
+    )
 }
 
-fn lookup_uid(uid: libc::uid_t) -> Option<Passwd> {
-    by_user(|pw, buf, res| {
-        // SAFETY: as above.
-        unsafe { libc::getpwuid_r(uid, pw, buf.as_mut_ptr(), buf.len(), res) };
-        Some(())
-    })
+fn lookup_uid(uid: libc::uid_t) -> io::Result<Option<Passwd>> {
+    // SAFETY: as above.
+    get_r(
+        |e, b, n, r| unsafe { libc::getpwuid_r(uid, e, b, n, r) },
+        passwd,
+    )
 }
 
-fn by_user(
-    call: impl Fn(*mut libc::passwd, &mut [libc::c_char], *mut *mut libc::passwd) -> Option<()>,
-) -> Option<Passwd> {
-    let mut buf = vec![0 as libc::c_char; 16384];
-    // SAFETY: passwd is plain data; zeroed is a valid initial value.
-    let mut pw: libc::passwd = unsafe { std::mem::zeroed() };
-    let mut res = std::ptr::null_mut();
-    call(&mut pw, &mut buf, &mut res)?;
-    if res.is_null() {
-        return None;
-    }
-    // SAFETY: on success pw_name points into buf, which is still alive.
-    let name = unsafe { CStr::from_ptr(pw.pw_name) }.to_owned();
-    Some(Passwd {
+fn lookup_group(name: &str) -> io::Result<Option<libc::gid_t>> {
+    let Ok(name) = CString::new(name) else {
+        return Ok(None);
+    };
+    // SAFETY: as above.
+    get_r(
+        |e, b, n, r| unsafe { libc::getgrnam_r(name.as_ptr(), e, b, n, r) },
+        |g: &libc::group| g.gr_gid,
+    )
+}
+
+fn passwd(pw: &libc::passwd) -> Passwd {
+    Passwd {
         uid: pw.pw_uid,
         gid: pw.pw_gid,
-        name,
-    })
+        // SAFETY: get_r only hands over a filled-in entry; pw_name points into its buffer.
+        name: unsafe { CStr::from_ptr(pw.pw_name) }.to_owned(),
+    }
 }
 
-fn lookup_group(name: &str) -> Option<libc::gid_t> {
-    let name = CString::new(name).ok()?;
-    let mut buf = vec![0 as libc::c_char; 16384];
-    // SAFETY: group is plain data; zeroed is a valid initial value.
-    let mut gr: libc::group = unsafe { std::mem::zeroed() };
-    let mut res = std::ptr::null_mut();
-    // SAFETY: all pointers are valid for the call.
-    unsafe {
-        libc::getgrnam_r(
-            name.as_ptr(),
-            &mut gr,
-            buf.as_mut_ptr(),
-            buf.len(),
-            &mut res,
-        )
-    };
-    (!res.is_null()).then_some(gr.gr_gid)
+/// Call a `get*_r` function, growing the buffer while it is too small. `Ok(None)`
+/// if there is no such entry.
+fn get_r<E, T>(
+    call: impl Fn(*mut E, *mut libc::c_char, usize, *mut *mut E) -> libc::c_int,
+    read: impl FnOnce(&E) -> T,
+) -> io::Result<Option<T>> {
+    let mut size = 1024;
+    loop {
+        let mut buf = vec![0 as libc::c_char; size];
+        let mut entry = std::mem::MaybeUninit::<E>::uninit();
+        let mut res = std::ptr::null_mut();
+        match call(entry.as_mut_ptr(), buf.as_mut_ptr(), buf.len(), &mut res) {
+            0 if res.is_null() => return Ok(None),
+            // SAFETY: on success the entry is filled in; its strings point into buf.
+            0 => return Ok(Some(read(unsafe { entry.assume_init_ref() }))),
+            libc::ERANGE if size < MAX_BUFFER => size *= 4,
+            // some systems report a missing entry as an error
+            libc::ENOENT | libc::ESRCH => return Ok(None),
+            e => return Err(io::Error::from_raw_os_error(e)),
+        }
+    }
 }
+
+const MAX_BUFFER: usize = 1 << 20;
 
 /// A decimal id. `u32::MAX` is `(uid_t)-1`, which means "unchanged" to setuid.
 fn numeric_id(s: &str) -> Option<u32> {
@@ -105,12 +113,13 @@ pub fn parse(spec: &str) -> Result<Target, String> {
     };
     let mut gid_known = user.is_empty();
     if !user.is_empty() {
-        let pw = match lookup_user(user) {
+        let lookup = |e: io::Error| err(&format!("cannot look up user '{user}': {e}"));
+        let pw = match lookup_user(user).map_err(lookup)? {
             Some(pw) => Some(pw),
             None => {
                 let uid = numeric_id(user).ok_or_else(|| err(&format!("unknown user '{user}'")))?;
                 t.uid = uid;
-                lookup_uid(uid)
+                lookup_uid(uid).map_err(lookup)?
             }
         };
         if let Some(pw) = pw {
@@ -123,6 +132,7 @@ pub fn parse(spec: &str) -> Result<Target, String> {
     match group {
         Some(g) if !g.is_empty() => {
             t.gid = lookup_group(g)
+                .map_err(|e| err(&format!("cannot look up group '{g}': {e}")))?
                 .or_else(|| numeric_id(g))
                 .ok_or_else(|| err(&format!("unknown group '{g}'")))?;
         }
@@ -192,7 +202,7 @@ pub fn create_dir(path: &str) -> Result<Output<File>, String> {
 /// Dropping privileges, once, after the first input is open.
 pub struct Dropper {
     target: Target,
-    chroot: Option<CString>,
+    chroot: Option<String>,
     /// Created outputs, handed to the new ids by descriptor, never by path.
     handover: Vec<OwnedFd>,
     done: bool,
@@ -205,7 +215,7 @@ impl Dropper {
             Some(_) if target.uid == 0 => {
                 return Err("-z requires -U with a non-root user".into());
             }
-            Some(d) => Some(CString::new(d).map_err(|_| format!("-z {d}: invalid path"))?),
+            Some(d) => Some(d.to_string()),
         };
         Ok(Dropper {
             target,
@@ -232,20 +242,12 @@ impl Dropper {
         let t = &self.target;
         let os = |what: &str| format!("{what}: {}", io::Error::last_os_error());
         for fd in self.handover.drain(..) {
-            // SAFETY: fd is an open descriptor we own.
-            if unsafe { libc::fchown(fd.as_raw_fd(), t.uid, t.gid) } != 0 {
-                return Err(os("cannot hand output to the new user: fchown"));
-            }
+            std::os::unix::fs::fchown(&fd, Some(t.uid), Some(t.gid))
+                .map_err(|e| format!("cannot hand output to the new user: fchown: {e}"))?;
         }
         if let Some(dir) = &self.chroot {
-            // SAFETY: dir is a valid C string.
-            if unsafe { libc::chroot(dir.as_ptr()) } != 0 {
-                return Err(os(&format!("chroot {}", dir.to_string_lossy())));
-            }
-            // SAFETY: the literal is a valid C string.
-            if unsafe { libc::chdir(c"/".as_ptr()) } != 0 {
-                return Err(os("chdir /"));
-            }
+            std::os::unix::fs::chroot(dir).map_err(|e| format!("chroot {dir}: {e}"))?;
+            std::env::set_current_dir("/").map_err(|e| format!("chdir /: {e}"))?;
         }
         // groups first: setuid to non-root takes away the right to change them
         // SAFETY: valid arguments; failures are checked.
@@ -285,6 +287,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn lookups_grow_the_buffer() {
+        let sizes = std::cell::RefCell::new(Vec::new());
+        let r = get_r(
+            |e: *mut u32, _, n, res: *mut *mut u32| {
+                sizes.borrow_mut().push(n);
+                if n < 10000 {
+                    return libc::ERANGE;
+                }
+                // SAFETY: the pointers come from get_r and are valid.
+                unsafe {
+                    e.write(7);
+                    *res = e;
+                }
+                0
+            },
+            |v| *v,
+        );
+        assert_eq!(r.unwrap(), Some(7));
+        assert_eq!(*sizes.borrow(), [1024, 4096, 16384]);
+        let too_big = get_r(|_: *mut u32, _, _, _| libc::ERANGE, |v| *v);
+        assert_eq!(too_big.unwrap_err().raw_os_error(), Some(libc::ERANGE));
+    }
+
+    #[test]
     fn numeric_ids() {
         assert_eq!(numeric_id("900"), Some(900));
         for bad in ["", "+5", "-5", "1x", "4294967295", "99999999999999999999"] {
@@ -313,7 +339,9 @@ mod tests {
 
     #[test]
     fn uid_without_passwd_entry_needs_a_group() {
-        let uid = (60000..65000).find(|&u| lookup_uid(u).is_none()).unwrap();
+        let uid = (60000..65000)
+            .find(|&u| matches!(lookup_uid(u), Ok(None)))
+            .unwrap();
         assert!(
             parse(&uid.to_string())
                 .unwrap_err()

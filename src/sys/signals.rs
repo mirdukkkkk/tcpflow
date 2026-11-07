@@ -51,13 +51,19 @@ pub fn stopped() -> bool {
     STOP.load(Ordering::SeqCst)
 }
 
-/// Registers a live capture to be woken by a stop, until dropped.
-pub struct Wake;
+/// A live capture that a stop wakes. Owning it guarantees that the handler forgets
+/// the capture before it is closed: `drop` runs before the field is dropped.
+pub struct Wake(pcap::Capture<pcap::Active>);
 
-/// The capture must outlive the returned `Wake`.
-pub fn wake_on_stop(cap: &pcap::Capture<pcap::Active>) -> Wake {
+pub fn wake_on_stop(cap: pcap::Capture<pcap::Active>) -> Wake {
     CAPTURE.store(cap.as_ptr().cast(), Ordering::SeqCst);
-    Wake
+    Wake(cap)
+}
+
+impl Wake {
+    pub fn capture(&mut self) -> &mut pcap::Capture<pcap::Active> {
+        &mut self.0
+    }
 }
 
 impl Drop for Wake {
