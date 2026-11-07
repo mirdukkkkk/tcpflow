@@ -572,6 +572,8 @@ As specified for 1.6.2 by #281:
 | D10 | `DLT_NULL` compares the family with the reading host's `AF_INET`/`AF_INET6` constants, so a macOS or BSD IPv6 capture is not decoded on Linux and vice versa. | The family values of all common platforms are accepted, in either byte order. |
 | D11 | `-Fc` replaces `%c` with `%C`, so the name loses the counter. A second flow with the same name makes the search for a free name loop forever. | Fixed in 1.x as well (`fix/fc-counter`); see section 7.2. |
 | D12 | `SIGTERM` and `SIGINT` only stop the packet loop; a process stuck elsewhere ignores them. | `SIGTERM` and `SIGINT` stop processing promptly; open flows are closed and the report is written. |
+| D13 | The MAC addresses in `report.xml` are copied from the first 12 bytes of every frame, so loopback and raw IP captures get garbage `mac_daddr`/`mac_saddr` values. | MAC addresses only for Ethernet. Fixed in 1.x as well (`fix/report-mac`). |
+| D14 | An IPv6 packet with payload length 0 has no TCP data. | The captured length is used, as for IPv4 (section 4.3). |
 
 Differences that only affect level C outputs are not listed.
 
