@@ -93,6 +93,41 @@ fn corrupt_compressed_input_fails() {
 }
 
 #[test]
+fn compressed_input_that_is_not_a_capture_fails() {
+    let dir = scratch("not-pcap");
+    // more than a pipe buffer, so the decompressor is still writing when libpcap fails
+    let mut enc = flate2::write::GzEncoder::new(
+        std::fs::File::create(dir.join("junk.pcap.gz")).unwrap(),
+        flate2::Compression::fast(),
+    );
+    let mut x: u32 = 1;
+    for _ in 0..300_000 {
+        x = x.wrapping_mul(1_103_515_245).wrapping_add(12345);
+        enc.write_all(&[(x >> 16) as u8]).unwrap();
+    }
+    enc.finish().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_tcpflow"))
+        .args(["-o", "out", "-r", "junk.pcap.gz"])
+        .current_dir(&dir)
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let start = Instant::now();
+    let status = loop {
+        if let Some(s) = child.try_wait().unwrap() {
+            break s;
+        }
+        if start.elapsed() > Duration::from_secs(10) {
+            child.kill().unwrap();
+            panic!("tcpflow hangs on a compressed input that is not a capture");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(status.code(), Some(1));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn sigterm_closes_flows_and_writes_the_report() {
     let dir = scratch("sigterm");
     let mut child = Command::new(env!("CARGO_BIN_EXE_tcpflow"))

@@ -3,7 +3,7 @@
 
 use std::fs::File;
 use std::io::{self, BufReader, Read, Write};
-use std::os::fd::IntoRawFd;
+use std::os::fd::{FromRawFd, IntoRawFd, OwnedFd};
 use std::thread::JoinHandle;
 
 use pcap::{Active, Capture, Device, Offline};
@@ -54,11 +54,16 @@ pub fn open(path: &str) -> Result<Input, String> {
             other => other,
         }
     });
+    let fd = reader.into_raw_fd();
     // SAFETY: the descriptor is a fresh pipe end; libpcap takes ownership of it.
-    let capture = match unsafe { Capture::from_raw_fd(reader.into_raw_fd()) } {
+    let capture = match unsafe { Capture::from_raw_fd(fd) } {
         Ok(c) => c,
         // the decompressor's own error says more than libpcap's "truncated file"
         Err(e) => {
+            // libpcap leaves the descriptor open when it fails; closing it ends a
+            // decompressor blocked on the full pipe
+            // SAFETY: fd is open and nothing else uses it.
+            drop(unsafe { OwnedFd::from_raw_fd(fd) });
             return Err(match inflater.join() {
                 Ok(Err(cause)) => format!("{path}: decompression failed: {cause}"),
                 _ => format!("{path}: {e}"),
