@@ -692,9 +692,10 @@ Based on #281, with the problems found in its review fixed (D22–D24):
   existing file, a device such as `/dev/null` or the target of a symlink
   is never given away (D23). It is still written through the descriptor
   opened before the drop;
-- the order is `fchown`, `chroot` and `chdir("/")`, supplementary
-  groups (`initgroups` for a user with a passwd entry, otherwise only
-  the target group), `setgid`, `setuid`. After a drop to a non-root uid,
+- the order is `fchown`, supplementary groups (`initgroups` for a user
+  with a passwd entry, otherwise only the target group; before the
+  chroot, so that they come from the real group database), `chroot` and
+  `chdir("/")`, `setgid`, `setuid`. After a drop to a non-root uid,
   `setuid(0)` and `seteuid(0)` must fail;
 - `-z dir` requires `-U` with a non-root uid. The output directory
   `-o O` is `dir/O` before and after the chroot, and the default report

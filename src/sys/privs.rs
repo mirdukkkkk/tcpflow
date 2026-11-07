@@ -258,11 +258,8 @@ impl Dropper {
             std::os::unix::fs::fchown(&fd, Some(t.uid), Some(t.gid))
                 .map_err(|e| format!("cannot hand output to the new user: fchown: {e}"))?;
         }
-        if let Some(dir) = &self.chroot {
-            std::os::unix::fs::chroot(dir).map_err(|e| format!("chroot {dir}: {e}"))?;
-            std::env::set_current_dir("/").map_err(|e| format!("chdir /: {e}"))?;
-        }
-        // groups first: setuid to non-root takes away the right to change them
+        // groups before the chroot, so that they come from the real /etc/group, and
+        // before setuid, which takes away the right to change them
         // SAFETY: valid arguments; failures are checked.
         let groups = match &t.user {
             Some(name) => unsafe { libc::initgroups(name.as_ptr(), t.gid as _) },
@@ -270,6 +267,10 @@ impl Dropper {
         };
         if groups != 0 {
             return Err(os("setting supplementary groups"));
+        }
+        if let Some(dir) = &self.chroot {
+            std::os::unix::fs::chroot(dir).map_err(|e| format!("chroot {dir}: {e}"))?;
+            std::env::set_current_dir("/").map_err(|e| format!("chdir /: {e}"))?;
         }
         // SAFETY: plain system calls; failures are checked.
         if unsafe { libc::setgid(t.gid) } != 0 {
