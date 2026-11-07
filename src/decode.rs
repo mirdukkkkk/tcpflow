@@ -54,10 +54,10 @@ pub struct Segment<'a> {
 pub enum Decoded<'a> {
     /// A TCP segment with a complete 20-byte header.
     Tcp(Segment<'a>, LinkInfo),
-    /// An IP packet that is not processed as TCP: not TCP, a fragment, malformed or
-    /// truncated (SPEC.md 12).
+    /// A frame that the link layer hands on as IP, but that is not processed as TCP:
+    /// not IP after all, not TCP, a fragment, malformed or truncated (SPEC.md 12).
     UnprocessedIp,
-    /// Not an IP packet, or too short to tell.
+    /// The link layer does not carry IP.
     Other,
 }
 
@@ -91,10 +91,15 @@ pub fn decode(linktype: i32, frame: &[u8]) -> Decoded<'_> {
         return Decoded::Other;
     };
     match ip_tcp(ip) {
-        IpTcp::Tcp(src, dst, tcp) => decode_tcp(src, dst, tcp, link),
-        IpTcp::UnprocessedIp => Decoded::UnprocessedIp,
-        IpTcp::Other => Decoded::Other,
+        Some((src, dst, tcp)) => decode_tcp(src, dst, tcp, link),
+        None => Decoded::UnprocessedIp,
     }
+}
+
+/// Does the link layer hand this frame on as IP? Such frames go to `-w` when they
+/// are not processed (SPEC.md 12).
+pub fn carries_ip(linktype: i32, frame: &[u8]) -> bool {
+    strip_link(linktype, frame).is_some()
 }
 
 /// The flow addresses of a TCP packet, for `-K`: only the ports are needed from the
@@ -110,7 +115,7 @@ pub struct Ports {
 pub fn decode_ports(linktype: i32, frame: &[u8]) -> Option<Ports> {
     let (ip, link) = strip_link(linktype, frame)?;
     match ip_tcp(ip) {
-        IpTcp::Tcp(src, dst, tcp) if tcp.len() >= 4 => Some(Ports {
+        Some((src, dst, tcp)) if tcp.len() >= 4 => Some(Ports {
             src,
             dst,
             sport: be16(tcp, 0),
@@ -188,29 +193,25 @@ fn strip_link(linktype: i32, f: &[u8]) -> Option<(&[u8], LinkInfo)> {
     Some((ip, link))
 }
 
-enum IpTcp<'a> {
-    /// Source, destination and the TCP bytes (header and data).
-    Tcp(IpAddr, IpAddr, &'a [u8]),
-    UnprocessedIp,
-    Other,
-}
+/// Source, destination and the TCP bytes (header and data).
+type IpTcp<'a> = (IpAddr, IpAddr, &'a [u8]);
 
 /// Find the TCP bytes in an IPv4 or IPv6 packet, selected by the version nibble
-/// (SPEC.md 4.2, 4.3).
-fn ip_tcp(ip: &[u8]) -> IpTcp<'_> {
+/// (SPEC.md 4.2, 4.3). `None` if the packet is not processed as TCP.
+fn ip_tcp(ip: &[u8]) -> Option<IpTcp<'_>> {
     if ip.len() < 20 {
-        return IpTcp::Other;
+        return None;
     }
     match ip[0] >> 4 {
         4 => ip4_tcp(ip),
         6 => ip6_tcp(ip),
-        _ => IpTcp::Other,
+        _ => None,
     }
 }
 
-fn ip4_tcp(ip: &[u8]) -> IpTcp<'_> {
+fn ip4_tcp(ip: &[u8]) -> Option<IpTcp<'_>> {
     if ip[9] != IPPROTO_TCP || be16(ip, 6) & 0x1fff != 0 {
-        return IpTcp::UnprocessedIp;
+        return None;
     }
     let mut ip_len = be16(ip, 2) as usize;
     if ip_len == 0 {
@@ -218,17 +219,17 @@ fn ip4_tcp(ip: &[u8]) -> IpTcp<'_> {
     }
     let header_len = (ip[0] & 0x0f) as usize * 4;
     if header_len < 20 || header_len > ip_len || header_len > ip.len() {
-        return IpTcp::UnprocessedIp;
+        return None;
     }
     let end = ip_len.min(ip.len());
     let src = IpAddr::V4(Ipv4Addr::from(be32(ip, 12)));
     let dst = IpAddr::V4(Ipv4Addr::from(be32(ip, 16)));
-    IpTcp::Tcp(src, dst, &ip[header_len..end])
+    Some((src, dst, &ip[header_len..end]))
 }
 
-fn ip6_tcp(ip: &[u8]) -> IpTcp<'_> {
+fn ip6_tcp(ip: &[u8]) -> Option<IpTcp<'_>> {
     if ip.len() < 40 || ip[6] != IPPROTO_TCP {
-        return IpTcp::UnprocessedIp;
+        return None;
     }
     let mut payload_len = be16(ip, 4) as usize;
     if payload_len == 0 {
@@ -237,11 +238,11 @@ fn ip6_tcp(ip: &[u8]) -> IpTcp<'_> {
     let end = (40 + payload_len).min(ip.len());
     let src: [u8; 16] = ip[8..24].try_into().unwrap();
     let dst: [u8; 16] = ip[24..40].try_into().unwrap();
-    IpTcp::Tcp(
+    Some((
         IpAddr::V6(Ipv6Addr::from(src)),
         IpAddr::V6(Ipv6Addr::from(dst)),
         &ip[40..end],
-    )
+    ))
 }
 
 fn decode_tcp<'a>(src: IpAddr, dst: IpAddr, tcp: &'a [u8], link: LinkInfo) -> Decoded<'a> {
@@ -378,6 +379,16 @@ mod tests {
         f[0] = 0x4f; // IHL 15 > ip_len
         f[2..4].copy_from_slice(&40u16.to_be_bytes());
         assert_eq!(decode(dlt::RAW, &f), Decoded::UnprocessedIp);
+    }
+
+    #[test]
+    fn frames_handed_on_as_ip_are_unprocessed_even_if_not_ip() {
+        assert_eq!(decode(dlt::RAW, &[0x45; 10]), Decoded::UnprocessedIp);
+        assert_eq!(decode(dlt::RAW, &[0x75; 40]), Decoded::UnprocessedIp);
+        let mut arp = vec![0u8; 42];
+        arp[12..14].copy_from_slice(&0x0806u16.to_be_bytes());
+        assert_eq!(decode(dlt::EN10MB, &arp), Decoded::Other);
+        assert!(!carries_ip(dlt::EN10MB, &arp));
     }
 
     #[test]

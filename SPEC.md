@@ -389,10 +389,26 @@ Files are opened and closed under the limit of section 8 (D3).
 
 ## 12. Unprocessed packets (`-w`)
 
-With `-w file`, every IPv4 or IPv6 packet that is not processed as TCP
-(section 4) is written to `file` in pcap format. Non-IP frames are not
-written. The pcap header (link type, snaplen) is copied from the first
-`-r` file. `-w` requires at least one `-r`.
+With `-w file`, every frame that the link layer hands on as IP
+(section 4.1) but that is not processed is appended to `file` in pcap
+format. Not processed means:
+
+- it is not IPv4 or IPv6 after all: fewer than 20 bytes, or a version
+  nibble other than 4 or 6;
+- it is ignored by the rules of sections 4.2 to 4.4 (not TCP, a
+  fragment, a bad header length, fewer than 20 bytes of TCP header, or
+  fewer than 4 with `-K`);
+- it is a SYN that is ignored on an open flow (section 5.2).
+
+Frames the link layer drops (for example ARP on Ethernet, or an unknown
+`DLT_NULL` family) are not written. Packets of `-R` files that belong to
+no open flow are processed (and dropped) and are not written either.
+
+The file is created when the first `-r` file is opened. libpcap writes
+its header, with the link type and snaplen of that file, so pcapng,
+big-endian and compressed inputs work (D20). Each record holds the
+original timestamp, the captured length, the original length and the
+captured bytes. `-w` requires at least one `-r`.
 
 ## 13. Post-processing
 
@@ -516,6 +532,7 @@ Each `<fileobject>` (level B):
 | `template` | `-T %T-%A.%a-%B.%b-%#` |
 | `limit` | `-b 100` |
 | `pcap` | `-K` |
+| `unprocessed` | `-w out/unprocessed.pcap` |
 | `console` | `-c` |
 | `console-hdr` | `-C -s` |
 | `hex` | `-c -D` |
@@ -582,6 +599,7 @@ As specified for 1.6.2 by #281:
 | D17 | `-FM` enables the MD5 post-processor but not post-processing itself, so no digest is ever written. | `-FM` adds MD5 digests (13.1). |
 | D18 | Post-processing is skipped for a flow whose content is identical to an earlier flow (bulk_extractor's duplicate detection), so it gets no MD5 and its HTTP bodies are not extracted. | Every flow is post-processed. |
 | D19 | `-K` files of Ethernet captures have link type 6 (Token Ring), so tcpdump and Wireshark decode every packet wrongly. | The link type of the input. Fixed in 1.x as well (`fix/k-linktype`). |
+| D20 | `-w` copies the first 24 bytes of the first `-r` file as the pcap header and aborts if they are not a little-endian pcap header, so a pcapng, big-endian or compressed input makes tcpflow crash. | libpcap writes the header (section 12). Fixed in 1.x as well (`fix/w-pcapng`). |
 
 Differences that only affect level C outputs are not listed.
 

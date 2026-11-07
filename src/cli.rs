@@ -34,6 +34,8 @@ pub struct Config {
     pub index: bool,
     /// `-K`: one pcap file per flow (SPEC.md 11).
     pub split: bool,
+    /// `-w`: where packets that are not processed go (SPEC.md 12).
+    pub unprocessed: Option<String>,
     pub quiet: bool,
     pub debug: i32,
     pub tdelta: i64,
@@ -50,7 +52,7 @@ pub enum Action {
 const MAX_SEEK: u32 = 16 * 1024 * 1024;
 
 /// Options that SPEC.md assigns to later phases.
-const NOT_YET: &[char] = &['w', 'U', 'z', 'i', 'p', 'J', 'L'];
+const NOT_YET: &[char] = &['U', 'z', 'i', 'p', 'J', 'L'];
 
 /// Turn a post-processor on or off by name (`-e`, `-x`, `-E`).
 fn set_post(post: &mut post::Options, name: &str, on: bool) -> Result<(), String> {
@@ -105,6 +107,7 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
         console: Console::default(),
         index: false,
         split: false,
+        unprocessed: None,
         quiet: false,
         debug: 1,
         tdelta: 0,
@@ -170,6 +173,7 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
             Short('g') => cfg.console.color = true,
             Short('I') => cfg.index = true,
             Short('K') => cfg.split = true,
+            Short('w') => cfg.unprocessed = Some(value(&mut p)?),
             Short('q') => cfg.quiet = true,
             Short('S') => {
                 let v = value(&mut p)?;
@@ -220,7 +224,7 @@ pub fn usage(level: u32) {
     println!("TCPFLOW version {VERSION}\n");
     println!("usage: tcpflow [-BcCDhIqsvV0g] [-b max_bytes] [-d debug_level] [-f max_fds]");
     println!("       [-F[ctTXMkmg]] [-l] [-m min_bytes] [-o outdir] [-r file] [-R file]");
-    println!("       [-S name=value] [-T template] [-X xmlfile] [expression]");
+    println!("       [-S name=value] [-T template] [-w file] [-X xmlfile] [expression]");
     if level > 1 {
         println!("\nSee SPEC.md for every option and the filename template codes.");
     }

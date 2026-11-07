@@ -29,6 +29,7 @@ RUNS = {
     "template": ["-T", "%T-%A.%a-%B.%b-%#"],
     "limit": ["-b", "100"],
     "pcap": ["-K"],
+    "unprocessed": ["-w", "out/unprocessed.pcap"],
     "console": ["-c"],
     "console-hdr": ["-C", "-s"],
     "hex": ["-c", "-D"],

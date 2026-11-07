@@ -198,8 +198,14 @@ impl<'a> Demux<'a> {
         self.flow_counter
     }
 
-    /// Process one TCP segment (SPEC.md 5.2 to 5.4).
-    pub fn process(&mut self, seg: &Segment, link: LinkInfo, meta: &PacketMeta) -> io::Result<()> {
+    /// Process one TCP segment (SPEC.md 5.2 to 5.4). Returns false if the segment was
+    /// not processed and belongs in `-w` (SPEC.md 12).
+    pub fn process(
+        &mut self,
+        seg: &Segment,
+        link: LinkInfo,
+        meta: &PacketMeta,
+    ) -> io::Result<bool> {
         let key = FlowKey {
             src: seg.src,
             dst: seg.dst,
@@ -214,22 +220,22 @@ impl<'a> Demux<'a> {
 
         let mut exists = self.flows.contains_key(&key);
         if !exists && !self.start_new_flows {
-            return Ok(());
+            return Ok(true);
         }
         if exists && syn {
             let f = &self.flows[&key];
             if f.syn_count > 0 && f.pos > 0 {
                 log::debug(2, &format!("ignoring SYN on an open flow {key:?}"));
-                return Ok(());
+                return Ok(false);
             }
         }
         if !exists {
             if datalen == 0 {
                 if fin || rst || (!syn && !ack) {
-                    return Ok(());
+                    return Ok(true);
                 }
             } else if self.is_saved_retransmission(&key, seg.seq, seg.payload) {
-                return Ok(());
+                return Ok(true);
             }
         }
 
@@ -246,7 +252,7 @@ impl<'a> Demux<'a> {
 
         if !exists {
             if !syn && datalen == 0 {
-                return Ok(());
+                return Ok(true);
             }
             let session_id = match self.flows.get(&key.reverse()) {
                 Some(r) => r.session_id,
@@ -320,7 +326,8 @@ impl<'a> Demux<'a> {
         }
 
         if rst {
-            return self.close(&key);
+            self.close(&key)?;
+            return Ok(true);
         }
         self.clock += 1;
         let clock = self.clock;
@@ -341,7 +348,7 @@ impl<'a> Demux<'a> {
         if f.fin_count > 0 && seen == f.fin_size {
             self.close(&key)?;
         }
-        Ok(())
+        Ok(true)
     }
 
     /// Close flows that have been idle for longer than `tcp_timeout` (SPEC.md 5.4).

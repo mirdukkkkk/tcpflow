@@ -8,6 +8,7 @@ use std::path::Path;
 use crate::decode::Ports;
 use crate::demux::{FlowKey, Timestamp, default_max_open};
 use crate::naming::{NameInfo, Template};
+use crate::pcapfile::{Record, write_header, write_record};
 
 /// The snaplen written in every per-flow pcap header.
 const SNAPLEN: u32 = 65535;
@@ -26,15 +27,6 @@ pub struct Splitter {
     outputs: HashMap<FlowKey, Output>,
     open: usize,
     clock: u64,
-}
-
-/// One captured frame, as it is written back.
-pub struct Record<'a> {
-    /// The original timestamp, without `-S tdelta`.
-    pub secs: u32,
-    pub usecs: u32,
-    pub len: u32,
-    pub data: &'a [u8],
 }
 
 impl Splitter {
@@ -90,7 +82,7 @@ impl Splitter {
             }
             self.make_room()?;
             let mut file = BufWriter::new(File::create(&path)?);
-            write_header(&mut file, self.linktype)?;
+            write_header(&mut file, self.linktype, SNAPLEN)?;
             self.open += 1;
             self.outputs.insert(
                 key,
@@ -109,11 +101,7 @@ impl Splitter {
         }
         let out = self.outputs.get_mut(&key).unwrap();
         out.last_use = self.clock;
-        let file = out.file.as_mut().unwrap();
-        for v in [rec.secs, rec.usecs, rec.data.len() as u32, rec.len] {
-            file.write_all(&v.to_ne_bytes())?;
-        }
-        file.write_all(rec.data)
+        write_record(out.file.as_mut().unwrap(), rec)
     }
 
     /// Close the least recently written file if the limit is reached (SPEC.md 8, D3).
@@ -144,15 +132,4 @@ impl Splitter {
         }
         Ok(())
     }
-}
-
-/// The classic pcap file header, in this host's byte order.
-fn write_header(out: &mut impl Write, linktype: u32) -> io::Result<()> {
-    out.write_all(&0xa1b2c3d4u32.to_ne_bytes())?;
-    out.write_all(&2u16.to_ne_bytes())?;
-    out.write_all(&4u16.to_ne_bytes())?;
-    out.write_all(&0u32.to_ne_bytes())?; // time zone
-    out.write_all(&0u32.to_ne_bytes())?; // timestamp accuracy
-    out.write_all(&SNAPLEN.to_ne_bytes())?;
-    out.write_all(&linktype.to_ne_bytes())
 }

@@ -6,6 +6,7 @@ mod http;
 mod input;
 mod mime;
 mod naming;
+mod pcapfile;
 mod post;
 mod report;
 mod signals;
@@ -60,6 +61,9 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
     log::set_level(cfg.debug);
     if cfg.rfiles.is_empty() && cfg.big_r_files.is_empty() {
         return Err("live capture (-i) is not implemented yet; use -r".into());
+    }
+    if cfg.unprocessed.is_some() && cfg.rfiles.is_empty() {
+        return Err("-w requires -r".into());
     }
     if cfg.post.any() && !cfg.store_output {
         return Err("post-processing requires storing output (it cannot be used with -FX)".into());
@@ -123,6 +127,7 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
     let mut splitter = cfg
         .split
         .then(|| split::Splitter::new(&cfg.outdir, demux.template().clone(), cfg.max_open));
+    let mut unprocessed = None;
     let mut ok = true;
     for (paths, new_flows) in [(&cfg.rfiles, true), (&cfg.big_r_files, false)] {
         demux.start_new_flows = new_flows;
@@ -132,12 +137,15 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
                     Some(s) => s,
                     None => &mut demux,
                 };
-                ok &= read_file(engine, cfg, path)?;
+                ok &= read_file(engine, cfg, path, &mut unprocessed)?;
             }
         }
     }
     if let Some(s) = splitter {
         s.finish().map_err(|e| e.to_string())?;
+    }
+    if let Some(w) = unprocessed {
+        w.finish()?;
     }
     demux.close_all().map_err(|e| e.to_string())?;
     let summary = Summary {
@@ -157,6 +165,16 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
     })
 }
 
+/// What became of a captured frame.
+#[derive(PartialEq, Eq)]
+enum Outcome {
+    Processed,
+    /// Handed on as IP by the link layer, but not processed: goes to `-w`.
+    Unprocessed,
+    /// The link layer does not carry IP.
+    NotIp,
+}
+
 /// What is done with every captured frame: reassembly or `-K` splitting.
 trait Engine {
     fn start(&mut self, linktype: i32);
@@ -166,7 +184,7 @@ trait Engine {
         header: &pcap::PacketHeader,
         data: &[u8],
         ts: Timestamp,
-    ) -> Result<(), String>;
+    ) -> Result<Outcome, String>;
 }
 
 impl Engine for Demux<'_> {
@@ -178,20 +196,25 @@ impl Engine for Demux<'_> {
         header: &pcap::PacketHeader,
         data: &[u8],
         ts: Timestamp,
-    ) -> Result<(), String> {
+    ) -> Result<Outcome, String> {
         let meta = PacketMeta {
             ts,
             caplen: header.caplen,
             len: header.len,
         };
-        match decode::decode(linktype, data) {
+        let outcome = match decode::decode(linktype, data) {
             Decoded::Tcp(seg, link) => {
-                self.process(&seg, link, &meta).map_err(|e| e.to_string())?
+                if self.process(&seg, link, &meta).map_err(|e| e.to_string())? {
+                    Outcome::Processed
+                } else {
+                    Outcome::Unprocessed
+                }
             }
-            Decoded::UnprocessedIp => {}
-            Decoded::Other => return Ok(()),
-        }
-        self.expire(ts).map_err(|e| e.to_string())
+            Decoded::UnprocessedIp => Outcome::Unprocessed,
+            Decoded::Other => return Ok(Outcome::NotIp),
+        };
+        self.expire(ts).map_err(|e| e.to_string())?;
+        Ok(outcome)
     }
 }
 
@@ -206,24 +229,34 @@ impl Engine for split::Splitter {
         header: &pcap::PacketHeader,
         data: &[u8],
         ts: Timestamp,
-    ) -> Result<(), String> {
+    ) -> Result<Outcome, String> {
         let Some(ports) = decode::decode_ports(linktype, data) else {
-            return Ok(());
+            return Ok(if decode::carries_ip(linktype, data) {
+                Outcome::Unprocessed
+            } else {
+                Outcome::NotIp
+            });
         };
-        let rec = split::Record {
-            secs: header.ts.tv_sec as u32,
-            usecs: header.ts.tv_usec as u32,
-            len: header.len,
-            data,
-        };
-        self.write(&ports, ts, &rec).map_err(|e| e.to_string())
+        self.write(&ports, ts, &pcapfile::Record::new(header, data))
+            .map_err(|e| e.to_string())?;
+        Ok(Outcome::Processed)
     }
 }
 
 /// Process one capture file. Returns false if it could not be read to the end.
-fn read_file(engine: &mut dyn Engine, cfg: &Config, path: &str) -> Result<bool, String> {
+/// `unprocessed` is the `-w` file, created with the link type and snaplen of the first
+/// input (SPEC.md 12).
+fn read_file(
+    engine: &mut dyn Engine,
+    cfg: &Config,
+    path: &str,
+    unprocessed: &mut Option<pcapfile::Unprocessed>,
+) -> Result<bool, String> {
     let mut input = input::open(path)?;
-    let complete = read_packets(engine, cfg, path, &mut input.capture)?;
+    if let (None, Some(w)) = (&unprocessed, &cfg.unprocessed) {
+        *unprocessed = Some(pcapfile::Unprocessed::create(w, &input.capture)?);
+    }
+    let complete = read_packets(engine, cfg, path, &mut input.capture, unprocessed)?;
     match input.finish(path) {
         Ok(()) => Ok(complete),
         Err(e) => {
@@ -238,6 +271,7 @@ fn read_packets(
     cfg: &Config,
     path: &str,
     cap: &mut pcap::Capture<pcap::Offline>,
+    unprocessed: &mut Option<pcapfile::Unprocessed>,
 ) -> Result<bool, String> {
     let linktype = cap.get_datalink().0;
     if !decode::supported(linktype) {
@@ -265,7 +299,10 @@ fn read_packets(
             secs: packet.header.ts.tv_sec as i64 + cfg.tdelta,
             usecs: packet.header.ts.tv_usec as i64,
         };
-        engine.packet(linktype, packet.header, packet.data, ts)?;
+        let outcome = engine.packet(linktype, packet.header, packet.data, ts)?;
+        if let (Outcome::Unprocessed, Some(w)) = (outcome, unprocessed.as_mut()) {
+            w.write(&packet);
+        }
     }
 }
 
