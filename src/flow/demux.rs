@@ -179,6 +179,9 @@ pub struct Demux<'a> {
     /// With `tcp_timeout`: every flow by (last packet second, flow number), so
     /// that `expire` only looks at the flows that are idle for too long.
     idle: BTreeMap<(i64, u64), FlowKey>,
+    /// Flows with an open file by (`last_use`, flow number): the first one is
+    /// closed when no descriptor is left.
+    lru: BTreeMap<(u64, u64), FlowKey>,
     saved: VecDeque<SavedFlow>,
     /// New flows may be created (false while reading `-R` files).
     pub start_new_flows: bool,
@@ -199,6 +202,7 @@ impl<'a> Demux<'a> {
             lock: None,
             flows: HashMap::new(),
             idle: BTreeMap::new(),
+            lru: BTreeMap::new(),
             saved: VecDeque::new(),
             start_new_flows: true,
             flow_counter: 0,
@@ -375,6 +379,10 @@ impl<'a> Demux<'a> {
                     .wrapping_sub(1);
             }
         } else {
+            if f.file.is_some() {
+                self.lru.remove(&(f.last_use, f.flow_number));
+                self.lru.insert((clock, f.flow_number), key);
+            }
             f.last_use = clock;
         }
         let seen = f.seen.len() as u32;
@@ -611,6 +619,7 @@ impl<'a> Demux<'a> {
                     f.created = true;
                     f.file = Some(file);
                     f.index = index;
+                    self.lru.insert((f.last_use, f.flow_number), *key);
                     self.open_files += 1;
                     self.max_open_files = self.max_open_files.max(self.open_files);
                     return Ok(true);
@@ -656,13 +665,7 @@ impl<'a> Demux<'a> {
     }
 
     fn close_oldest_file(&mut self) -> io::Result<()> {
-        let oldest = self
-            .flows
-            .values()
-            .filter(|f| f.file.is_some())
-            .min_by_key(|f| f.last_use)
-            .map(|f| f.key);
-        if let Some(key) = oldest {
+        if let Some((_, &key)) = self.lru.first_key_value() {
             self.close_file(&key);
         }
         Ok(())
@@ -677,6 +680,7 @@ impl<'a> Demux<'a> {
             if let Err(e) = file.set_times(FileTimes::new().set_accessed(t).set_modified(t)) {
                 log::debug(1, &format!("cannot set the times of {:?}: {e}", f.path));
             }
+            self.lru.remove(&(f.last_use, f.flow_number));
             self.open_files -= 1;
         }
     }
