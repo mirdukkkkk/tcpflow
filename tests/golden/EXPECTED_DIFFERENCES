@@ -1,0 +1,7 @@
+# Conformance cases where tcpflow 2.0 intentionally differs from the
+# golden data, one per line:
+#
+#   <pcap>:<run> <SPEC.md difference ID> <reason>
+#
+# Example:
+#   tests/vlan-pcp.pcap:default D1 VLAN ID without priority bits

@@ -291,7 +291,7 @@ The flags are applied in the order given and edit the current template:
 
 | Flag | Effect |
 |---|---|
-| `c` | Replace `%c` with `%C`, so the counter is always appended. |
+| `c` | Always append the connection counter: `%C%c` becomes `c%#`, and any other `%c` becomes `%#`. The first file of a flow gets `c0` (D11). |
 | `t` | Prepend `%tT`. |
 | `T` | Prepend `%T`. |
 | `k` | Prepend `%K/`. |
@@ -525,10 +525,19 @@ For each run the golden data contains:
 - stdout for the console runs (level A);
 - file modification times.
 
-`tests/conformance.sh <tcpflow binary>` runs every case, compares the
+`tests/conformance.py check <tcpflow>` runs every case, compares the
 results and prints `N of M cases match`. A case that differs only
 because of an intentional difference is recorded in
 `tests/golden/EXPECTED_DIFFERENCES` with the reason.
+
+The golden data is not taken on trust:
+
+- `tests/conformance.py generate <reference>` refuses to write golden data
+  if any case hangs (30 seconds) or crashes. A hang or a crash is always a
+  bug, in the reference or in 2.0, never expected behaviour;
+- when 2.0 differs from the golden data, the difference is investigated
+  first. If 1.6.2 is wrong, the fix goes into section 17 and, where it
+  is cheap, into 1.x as well, and the golden data is regenerated.
 
 ## 16. Privilege dropping (`-U`, `-z`)
 
@@ -561,6 +570,8 @@ As specified for 1.6.2 by #281:
 | D8 | `SYN TO IGNORE!` is printed to stderr for every ignored SYN. | Printed only at debug level ≥ 2. |
 | D9 | Flow file times use `futimes` with the flow start time; on failure a message is printed and processing continues. | Same, without the message unless debug level ≥ 1. |
 | D10 | `DLT_NULL` compares the family with the reading host's `AF_INET`/`AF_INET6` constants, so a macOS or BSD IPv6 capture is not decoded on Linux and vice versa. | The family values of all common platforms are accepted, in either byte order. |
+| D11 | `-Fc` replaces `%c` with `%C`, so the name loses the counter. A second flow with the same name makes the search for a free name loop forever. | Fixed in 1.x as well (`fix/fc-counter`); see section 7.2. |
+| D12 | `SIGTERM` and `SIGINT` only stop the packet loop; a process stuck elsewhere ignores them. | `SIGTERM` and `SIGINT` stop processing promptly; open flows are closed and the report is written. |
 
 Differences that only affect level C outputs are not listed.
 
