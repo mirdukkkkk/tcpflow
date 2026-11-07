@@ -10,6 +10,7 @@ use std::time::{Duration, SystemTime};
 use crate::console;
 use crate::decode::{LinkInfo, Segment, TH_ACK, TH_FIN, TH_RST, TH_SYN};
 use crate::naming::{NameInfo, Template};
+use crate::post;
 use crate::stream::{self, Seen};
 
 /// Packet timestamp: seconds and microseconds since the Unix epoch.
@@ -95,8 +96,10 @@ pub struct Flow {
     pub last_byte: u64,
     seen: Option<Seen>,
 
-    /// The flow file, once one has been created.
+    /// The flow file, once one has been created (or the console name, see `created`).
     pub path: Option<String>,
+    /// A flow file was created on disk.
+    created: bool,
     file: Option<File>,
     /// The `-I` packet index, open while `file` is open (SPEC.md 10).
     index: Option<File>,
@@ -137,11 +140,13 @@ pub struct Options {
     pub index: bool,
     /// `-c`/`-C`: print segments instead of storing them (SPEC.md 9).
     pub console: Option<console::Options>,
+    /// Post-processors run on every closed flow file (SPEC.md 13).
+    pub post: post::Options,
 }
 
 /// Receives every flow when it is closed.
 pub trait FlowSink {
-    fn flow_closed(&mut self, flow: &Flow) -> io::Result<()>;
+    fn flow_closed(&mut self, flow: &Flow, post: &post::Results) -> io::Result<()>;
 }
 
 /// The last closed flows, for recognising retransmissions after the close (SPEC.md 5.5).
@@ -273,6 +278,7 @@ impl<'a> Demux<'a> {
                 last_byte: 0,
                 seen: Some(Seen::default()),
                 path: None,
+                created: false,
                 file: None,
                 index: None,
                 last_use: 0,
@@ -525,6 +531,7 @@ impl<'a> Demux<'a> {
                     };
                     let f = self.flows.get_mut(key).unwrap();
                     f.path = Some(path);
+                    f.created = true;
                     f.file = Some(file);
                     f.index = index;
                     self.open_files += 1;
@@ -606,7 +613,13 @@ impl<'a> Demux<'a> {
         if let (true, Some(path)) = (self.opt.index, &flow.path) {
             stream::sort_index(&index_path(path))?;
         }
-        self.sink.flow_closed(&flow)?;
+        let results = match &flow.path {
+            Some(path) if self.opt.post.any() && flow.created && flow.last_byte > 0 => {
+                post::run(&self.opt.post, path)?
+            }
+            _ => post::Results::default(),
+        };
+        self.sink.flow_closed(&flow, &results)?;
         if self.saved.len() > SAVED_FLOWS {
             self.saved.pop_front();
         }

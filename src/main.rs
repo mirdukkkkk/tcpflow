@@ -2,8 +2,11 @@ mod cli;
 mod console;
 mod decode;
 mod demux;
+mod http;
 mod input;
+mod mime;
 mod naming;
+mod post;
 mod report;
 mod signals;
 mod stream;
@@ -21,7 +24,7 @@ use report::{Report, Summary};
 struct NoReport;
 
 impl FlowSink for NoReport {
-    fn flow_closed(&mut self, _: &Flow) -> io::Result<()> {
+    fn flow_closed(&mut self, _: &Flow, _: &post::Results) -> io::Result<()> {
         Ok(())
     }
 }
@@ -56,6 +59,9 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
     log::set_level(cfg.debug);
     if cfg.rfiles.is_empty() && cfg.big_r_files.is_empty() {
         return Err("live capture (-i) is not implemented yet; use -r".into());
+    }
+    if cfg.post.any() && !cfg.store_output {
+        return Err("post-processing requires storing output (it cannot be used with -FX)".into());
     }
     let template = Template::parse(&cfg.template)?;
     if !template.uses_counter() {
@@ -107,6 +113,7 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
                 no_newline: cfg.console.no_newline,
                 color: cfg.console.color,
             }),
+            post: cfg.post,
         },
         sink,
     );

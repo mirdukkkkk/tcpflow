@@ -1,6 +1,7 @@
 //! Command line options (SPEC.md section 2).
 
 use crate::naming::{DEFAULT_TEMPLATE, apply_f_flags};
+use crate::post;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -23,7 +24,7 @@ pub struct Config {
     pub outdir: String,
     pub template: String,
     pub store_output: bool,
-    pub md5: bool,
+    pub post: post::Options,
     pub max_bytes: Option<u64>,
     pub max_seek: u32,
     pub max_open: Option<usize>,
@@ -47,9 +48,23 @@ pub enum Action {
 const MAX_SEEK: u32 = 16 * 1024 * 1024;
 
 /// Options that SPEC.md assigns to later phases.
-const NOT_YET: &[char] = &[
-    'a', 'e', 'x', 'E', 'Z', 'K', 'w', 'U', 'z', 'i', 'p', 'J', 'L',
-];
+const NOT_YET: &[char] = &['K', 'w', 'U', 'z', 'i', 'p', 'J', 'L'];
+
+/// Turn a post-processor on or off by name (`-e`, `-x`, `-E`).
+fn set_post(post: &mut post::Options, name: &str, on: bool) -> Result<(), String> {
+    match name {
+        "md5" => post.md5 = on,
+        "http" => post.http = on,
+        "all" => {
+            post.md5 = on;
+            post.http = on;
+        }
+        // not implemented yet (SPEC.md 13.3); accepted so that -e all and -x netviz work
+        "netviz" | "tcpdemux" | "wifiviz" => {}
+        other => return Err(format!("unknown post-processor '{other}'")),
+    }
+    Ok(())
+}
 
 fn value(p: &mut lexopt::Parser) -> Result<String, String> {
     p.value()
@@ -76,7 +91,10 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
         outdir: ".".into(),
         template: DEFAULT_TEMPLATE.into(),
         store_output: true,
-        md5: false,
+        post: post::Options {
+            decompress: true,
+            ..Default::default()
+        },
         max_bytes: None,
         max_seek: MAX_SEEK,
         max_open: None,
@@ -118,7 +136,7 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
                     cfg.store_output = false;
                 }
                 if flags.contains('M') {
-                    cfg.md5 = true;
+                    cfg.post.md5 = true; // SPEC.md D17
                 }
                 for c in apply_f_flags(&mut cfg.template, &flags) {
                     eprintln!("tcpflow: -F: invalid format specification '{c}'");
@@ -163,6 +181,14 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
                     _ => eprintln!("tcpflow: -S: unknown parameter '{name}'"),
                 }
             }
+            Short('a') => set_post(&mut cfg.post, "all", true)?,
+            Short('e') => set_post(&mut cfg.post, &value(&mut p)?, true)?,
+            Short('x') => set_post(&mut cfg.post, &value(&mut p)?, false)?,
+            Short('E') => {
+                set_post(&mut cfg.post, "all", false)?;
+                set_post(&mut cfg.post, &value(&mut p)?, true)?;
+            }
+            Short('Z') => cfg.post.decompress = false,
             Short(c) if NOT_YET.contains(&c) => {
                 return Err(format!("-{c} is not implemented yet"));
             }

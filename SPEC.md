@@ -579,6 +579,8 @@ As specified for 1.6.2 by #281:
 | D14 | An IPv6 packet with payload length 0 has no TCP data. | The captured length is used, as for IPv4 (section 4.3). |
 | D15 | Report timestamps drop the fraction when the microseconds are 0 (`…:41Z` instead of `…:41.000000Z`, #206). | Always 6 digits of microseconds. |
 | D16 | `.findx` offsets are not adjusted when data is shifted (6.2), so they point at the wrong bytes; the index is never sorted although the documentation says so. | Offsets follow the data and the index is sorted. Fixed in 1.x as well (`fix/findx-offsets`). |
+| D17 | `-FM` enables the MD5 post-processor but not post-processing itself, so no digest is ever written. | `-FM` adds MD5 digests (13.1). |
+| D18 | Post-processing is skipped for a flow whose content is identical to an earlier flow (bulk_extractor's duplicate detection), so it gets no MD5 and its HTTP bodies are not extracted. | Every flow is post-processed. |
 
 Differences that only affect level C outputs are not listed.
 

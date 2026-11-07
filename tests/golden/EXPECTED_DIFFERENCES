@@ -5,3 +5,5 @@
 #
 # Example:
 #   tests/vlan-pcp.pcap:default D1 VLAN ID without priority bits
+tests/bug5.pcap:all D18 a flow identical to an earlier one was not post-processed
+samplePcaps/jpegs.cap:all D18 a flow identical to an earlier one was not post-processed

@@ -168,14 +168,32 @@ def generate(binary):
     print("wrote %d cases to %s" % (len(cases), os.path.relpath(GOLDEN, ROOT)))
 
 
+def strip_post_processing(fileobjects):
+    """Drop the fields that post-processors add (SPEC.md D18)."""
+    out = []
+    for line in fileobjects or []:
+        fo = json.loads(line)
+        fo.pop("hashdigest", None)
+        fo.pop("byte_runs", None)
+        out.append(json.dumps(fo, sort_keys=True))
+    return sorted(out)
+
+
+# Expected differences that only affect some fields: the case still has to match
+# after this normalisation. Others make the whole case an expected difference.
+NORMALISERS = {"D18": strip_post_processing}
+
+
 def expected_differences():
+    """{case id: (difference id, reason)}"""
     known = {}
     if os.path.exists(EXPECTED):
         for line in open(EXPECTED):
             line = line.strip()
             if line and not line.startswith("#"):
-                cid, _, reason = line.partition(" ")
-                known[cid] = reason.strip()
+                cid, _, rest = line.partition(" ")
+                did, _, reason = rest.strip().partition(" ")
+                known[cid] = (did, reason.strip())
     return known
 
 
@@ -211,11 +229,17 @@ def check(binary, selected):
         problems = describe(golden, got)
         if broken(got):
             problems.insert(0, "hang or crash: %s" % got["status"])
+        if problems and cid in known and known[cid][0] in NORMALISERS:
+            normalise = NORMALISERS[known[cid][0]]
+            golden = dict(golden, fileobjects=normalise(golden.get("fileobjects")))
+            got = dict(got, fileobjects=normalise(got.get("fileobjects")))
+            if not describe(golden, got):
+                problems = ["expected"]
         if not problems:
             passed += 1
-        elif cid in known:
+        elif cid in known and (problems == ["expected"] or known[cid][0] not in NORMALISERS):
             expected += 1
-            print("EXPECTED %s (%s)" % (cid, known[cid]))
+            print("EXPECTED %s (%s %s)" % (cid, *known[cid]))
         else:
             print("FAIL %s" % cid)
             for p in problems[:10]:

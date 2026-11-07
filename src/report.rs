@@ -6,6 +6,7 @@ use std::net::IpAddr;
 
 use crate::demux::{Flow, FlowSink, Timestamp};
 use crate::naming::iso8601;
+use crate::post;
 
 pub struct Report {
     out: BufWriter<File>,
@@ -75,7 +76,7 @@ impl Report {
 }
 
 impl FlowSink for Report {
-    fn flow_closed(&mut self, f: &Flow) -> io::Result<()> {
+    fn flow_closed(&mut self, f: &Flow, post: &post::Results) -> io::Result<()> {
         let o = &mut self.out;
         writeln!(o, "  <fileobject>")?;
         if let Some(path) = &f.path {
@@ -115,6 +116,22 @@ impl FlowSink for Report {
             write!(o, " caplen='{}'", f.caplen)?;
         }
         writeln!(o, "/>")?;
+        if let Some(md5) = &post.md5 {
+            writeln!(o, "    <hashdigest type='MD5'>{md5}</hashdigest>")?;
+        }
+        if let Some(runs) = &post.http {
+            writeln!(o, "    <byte_runs>")?;
+            for r in runs {
+                writeln!(
+                    o,
+                    "      <byte_run file_offset='{}'><fileobject><filename>{}</filename><filesize>{}</filesize></fileobject></byte_run>",
+                    r.offset,
+                    escape(&r.path),
+                    r.size
+                )?;
+            }
+            writeln!(o, "    </byte_runs>")?;
+        }
         writeln!(o, "  </fileobject>")?;
         o.flush()
     }
