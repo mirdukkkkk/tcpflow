@@ -113,3 +113,16 @@ fn links_in_the_output_directory_are_not_followed() {
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn console_output_creates_no_directory() {
+    let dir = std::env::temp_dir().join(format!("tcpflow-test-c-dir-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let pcap = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/test1.pcap");
+    assert!(
+        tcpflow(&["-c", "-o", dir.to_str().unwrap(), "-r", pcap])
+            .status
+            .success()
+    );
+    assert!(!dir.exists());
+}

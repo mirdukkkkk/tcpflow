@@ -51,7 +51,7 @@ Phase marks the order of implementation: **1** is the first release
 | `-l` | Treat non-option arguments as `-r` files instead of an expression. | 1 |
 | `-i iface` | Live capture on `iface` (section 3.1). Without `-r` or `-R` (or `-l` files), capture on the first device libpcap reports. `-i` with `-r` or `-R` is an error (D27). | 2 |
 | `-p` | Do not put the interface in promiscuous mode. | 2 |
-| `-o dir` | Output directory, default `.`. Created (one level) if missing. | 1 |
+| `-o dir` | Output directory, default `.`. Created (one level) if missing, unless nothing is written there (`-c`). | 1 |
 | `-T template` | Flow file name template (section 7). If it has no `%c`, `%C%c` is appended. | 1 |
 | `-F flags` | Filename and output flags (section 7.2). | 1 |
 | `-b n` | Store at most `n` bytes per flow (section 6.4). | 1 |
@@ -95,7 +95,10 @@ Invalid options print usage to stderr and exit with status 1.
   accepted.
 - Files ending in `.gz`, `.bz2`, `.xz`, `.lzma` or `.zip` are
   decompressed in-process. A `.zip` file is read as its first entry.
-  No external program and no shell is used.
+  No external program and no shell is used. The `.xz` decoder supports
+  the CRC32, CRC64 and no-check modes and no filters besides LZMA2: a
+  file made with `xz --check=sha256` or a BCJ or delta filter is
+  reported as a decompression error.
 - The filter expression is compiled once per input with optimisation
   on. Packets that do not match are ignored.
 - For each `-r` file in order, new flows may be created. For each `-R`
@@ -629,6 +632,8 @@ Each `<fileobject>` (level B):
 - `out_of_order_count` and `violations` are present only if non-zero.
 - `caplen` is present only if it differs from `len`.
 - `family` is the platform's `AF_INET` / `AF_INET6` value, as in 1.6.2.
+- `<rusage>` holds `getrusage(RUSAGE_SELF)` as the platform reports it:
+  `maxrss` is in KiB on Linux and in bytes on macOS, as in 1.6.2.
 
 ## 15. Conformance tests
 

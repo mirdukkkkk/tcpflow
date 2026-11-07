@@ -92,9 +92,12 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
         ),
         None => cfg.outdir.clone(),
     };
-    let dir = privs::create_dir(&outdir)?;
-    late.hand_over(&dir)?;
-    drop(dir.handle);
+    // only when something is written there: -c alone creates no files (SPEC.md 2)
+    let writes_files = cfg.store_output && !cfg.console.enabled;
+    if cfg.split || writes_files || (cfg.enable_report && cfg.report_path.is_none()) {
+        let dir = privs::create_dir(&outdir)?;
+        late.hand_over(&dir)?;
+    }
 
     let mut report = if cfg.enable_report {
         // a link is followed only for a path the user named (SPEC.md 16)
