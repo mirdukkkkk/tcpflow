@@ -58,3 +58,23 @@ fn unknown_device() {
     assert_eq!(out.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&out.stderr).starts_with("tcpflow: tcpflow-no-such-device: "));
 }
+
+#[test]
+fn unwritable_outdir_names_the_file() {
+    use std::os::unix::fs::PermissionsExt;
+    if unsafe { libc::geteuid() } == 0 {
+        return; // root writes anyway
+    }
+    let dir = std::env::temp_dir().join(format!("tcpflow-test-ro-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let pcap = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/test1.pcap");
+    let out = tcpflow(&["-X", "/dev/null", "-o", dir.to_str().unwrap(), "-r", pcap]);
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let err = String::from_utf8_lossy(&out.stderr);
+    let prefix = format!("tcpflow: cannot create {}/", dir.display());
+    assert!(err.starts_with(&prefix), "{err}");
+}

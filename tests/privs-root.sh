@@ -52,7 +52,7 @@ creds 900:990 900 990 990 / -o $W/s1
 creds nobody $NOBODY_UID $NOBODY_GID $NOBODY_GROUPS / -o $W/s2
 creds $NOBODY_UID $NOBODY_UID $NOBODY_GID $NOBODY_GROUPS / -o $W/s3
 creds :991 0 991 991 / -o $W/s4
-mkdir $W/jail
+mkdir -m 755 $W/jail
 creds 900:990 900 990 990 $W/jail -z $W/jail -o out
 
 echo
@@ -86,7 +86,7 @@ code=$?
 
 echo
 echo "== 5. -z: output directory inside the chroot"
-mkdir $W/jail2
+mkdir -m 755 $W/jail2
 $B -U 900:990 -z $W/jail2 -o out -r $W/test1.pcap 2>/dev/null || bad "-z: exit $?"
 expect_owner $W/jail2/out 900:990 "chroot outdir"
 expect_owner $W/jail2/out/report.xml 900:990 "chroot report"

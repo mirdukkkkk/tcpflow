@@ -573,7 +573,7 @@ impl<'a> Demux<'a> {
             let path = join_outdir(&self.opt.outdir, self.opt.template.expand(&info, counter));
             if let Some(parent) = Path::new(&path).parent() {
                 if !parent.as_os_str().is_empty() {
-                    std::fs::create_dir_all(parent)?;
+                    std::fs::create_dir_all(parent).map_err(|e| with_path(e, parent))?;
                 }
             }
             match File::options()
@@ -584,7 +584,7 @@ impl<'a> Demux<'a> {
             {
                 Ok(file) => return Ok((path, file)),
                 Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(e) => return Err(e),
+                Err(e) => return Err(with_path(e, Path::new(&path))),
             }
         }
         unreachable!("the template uses the connection counter")
@@ -655,6 +655,14 @@ fn join_outdir(outdir: &str, name: String) -> String {
 
 fn index_path(flow_path: &str) -> String {
     format!("{flow_path}.findx")
+}
+
+/// Name the file in an error, except for EMFILE and ENFILE, which are handled.
+fn with_path(e: io::Error, path: &Path) -> io::Error {
+    if is_too_many_files(&e) {
+        return e;
+    }
+    io::Error::new(e.kind(), format!("cannot create {}: {e}", path.display()))
 }
 
 fn is_too_many_files(e: &io::Error) -> bool {
