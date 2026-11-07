@@ -761,6 +761,7 @@ Based on #281, with the problems found in its review fixed (D22–D24):
 | D40 | `-K` files whose expanded names are the same overwrite each other, and lose packets. The header has the DLT value of the reading system (12 for raw IP on Linux) instead of the LINKTYPE value (101). | Such flows share one file (section 11); the header has the LINKTYPE value. |
 | D41 | A TCP data offset below 5 is taken as is, so the TCP header (or part of it) is written to the flow as data. | The segment is malformed and ignored (section 4.4). |
 | D42 | The protocol field of Linux cooked captures is not checked: ARP and other frames are parsed as IP if the version nibble fits. | Only IPv4, IPv6 and MPLS are decoded (section 4.1). |
+| D43 | A literal `%%c` in `-T` counts as the connection counter, so `%C%c` is not appended; flows with the same name then search for a free name forever, and SIGTERM does not stop it. `-Fc` turns `%%c` into `%%#` or `%%C`. | `%%` is a literal everywhere (sections 7.1, 7.2). Fixed in 1.x as well (`fix/template-escape`). |
 
 Differences that only affect level C outputs are not listed.
 
