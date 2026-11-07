@@ -5,10 +5,10 @@ use std::fs::File;
 use std::io::{self, BufWriter, Write};
 use std::path::Path;
 
-use crate::decode::Ports;
-use crate::demux::{FlowKey, Timestamp, default_max_open};
-use crate::naming::{NameInfo, Template};
-use crate::pcapfile::{Record, write_header, write_record};
+use crate::capture::decode::Ports;
+use crate::flow::demux::{FlowKey, Timestamp, default_max_open};
+use crate::flow::naming::{NameInfo, Template};
+use crate::output::pcapfile::{Record, write_header, write_record};
 
 /// The snaplen written in every per-flow pcap header.
 const SNAPLEN: u32 = 65535;

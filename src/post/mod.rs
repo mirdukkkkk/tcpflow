@@ -1,11 +1,14 @@
 //! Post-processing of closed flows (SPEC.md section 13).
 
+pub mod http;
+pub mod mime;
+
 use std::fs::File;
 use std::io;
 
 use md5::{Digest, Md5};
 
-use crate::http::{self, BodyRun};
+use http::BodyRun;
 
 /// Which post-processors run.
 #[derive(Clone, Copy, Debug, Default)]

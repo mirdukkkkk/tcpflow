@@ -1,6 +1,6 @@
 //! Command line options (SPEC.md section 2).
 
-use crate::naming::{DEFAULT_TEMPLATE, apply_f_flags};
+use crate::flow::naming::{DEFAULT_TEMPLATE, apply_f_flags};
 use crate::post;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -51,7 +51,7 @@ pub struct Config {
     pub debug: i32,
     pub tdelta: i64,
     pub tcp_timeout: Option<i64>,
-    pub hooks: crate::hooks::Options,
+    pub hooks: crate::output::hooks::Options,
     /// `-L`: semaphore name (SPEC.md 9.4).
     pub lock: Option<String>,
     pub command_line: String,
@@ -135,7 +135,7 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
         debug: 1,
         tdelta: 0,
         tcp_timeout: None,
-        hooks: crate::hooks::Options {
+        hooks: crate::output::hooks::Options {
             tcp_cmd: None,
             http_cmd: None,
             tcp_alert_fd: None,

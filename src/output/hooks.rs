@@ -7,7 +7,7 @@ use std::mem::ManuallyDrop;
 use std::os::fd::FromRawFd;
 use std::process::{Child, Command};
 
-use crate::demux::log;
+use crate::log;
 
 /// At most this many commands of one kind run at a time.
 const MAX_RUNNING: usize = 10;

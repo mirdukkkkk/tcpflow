@@ -267,7 +267,7 @@ impl Dropper {
             return Err("still able to regain root after dropping privileges".into());
         }
         let user = t.user.as_ref().map(|u| u.to_string_lossy());
-        crate::demux::log::debug(
+        crate::log::debug(
             1,
             &format!(
                 "dropped privileges to uid={} gid={}{}",

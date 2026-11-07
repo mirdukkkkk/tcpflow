@@ -74,11 +74,11 @@ fn has_fcs(f: &[u8]) -> bool {
 /// if the frame carries no IP.
 pub fn strip(linktype: i32, f: &[u8]) -> Option<&[u8]> {
     let (frame, radio) = match linktype {
-        crate::decode::dlt::IEEE802_11_RADIO => {
+        crate::capture::decode::dlt::IEEE802_11_RADIO => {
             let (len, radio) = radiotap(f)?;
             (&f[len..], radio)
         }
-        crate::decode::dlt::PRISM_HEADER => (f.get(PRISM_HEADER_LEN..)?, Radio::default()),
+        crate::capture::decode::dlt::PRISM_HEADER => (f.get(PRISM_HEADER_LEN..)?, Radio::default()),
         _ => (f, Radio::default()),
     };
     let frame = match radio.fcs {
@@ -134,7 +134,7 @@ fn data(f: &[u8], pad: bool) -> Option<&[u8]> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::decode::dlt;
+    use crate::capture::decode::dlt;
 
     const IP: &[u8] = &[0x45, 1, 2, 3];
 

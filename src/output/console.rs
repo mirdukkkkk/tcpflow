@@ -2,7 +2,7 @@
 
 use std::io::{self, Write};
 
-use crate::demux::FlowKey;
+use crate::flow::demux::FlowKey;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Options {

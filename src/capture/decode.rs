@@ -200,7 +200,7 @@ fn strip_link(linktype: i32, f: &[u8]) -> Option<(&[u8], LinkInfo)> {
             &f[at..]
         }
         dlt::IEEE802_11 | dlt::PRISM_HEADER | dlt::IEEE802_11_RADIO => {
-            crate::wifi::strip(linktype, f)?
+            crate::capture::wifi::strip(linktype, f)?
         }
         _ => return None,
     };

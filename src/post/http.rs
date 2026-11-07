@@ -4,7 +4,7 @@
 use std::fs::File;
 use std::io::{self, Write};
 
-use crate::mime;
+use crate::post::mime;
 
 /// Flows shorter than this are not worth parsing.
 const MIN_SIZE: usize = 80;
@@ -356,7 +356,7 @@ impl Body {
     }
 
     fn decompression_failed(&mut self, e: &io::Error, written: u64) -> Sink {
-        crate::demux::log::debug(3, &format!("{}: decompression failed: {e}", self.path));
+        crate::log::debug(3, &format!("{}: decompression failed: {e}", self.path));
         self.written = written;
         Sink::Failed
     }

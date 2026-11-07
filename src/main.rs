@@ -1,30 +1,22 @@
+mod capture;
 mod cli;
-mod console;
-mod decode;
-mod demux;
-mod hooks;
-mod http;
-mod input;
-mod mime;
-mod naming;
-mod pcapfile;
+mod flow;
+mod log;
+mod output;
 mod post;
-mod privs;
-mod report;
-mod semlock;
-mod signals;
-mod split;
-mod stream;
-mod wifi;
+mod sys;
 
 use std::io;
 use std::process::ExitCode;
 
+use capture::decode::{self, Decoded};
+use capture::input;
 use cli::{Action, Config};
-use decode::Decoded;
-use demux::{Demux, Flow, FlowSink, PacketMeta, Timestamp, log};
-use naming::Template;
-use report::{Report, Summary};
+use flow::demux::{self, Demux, Flow, FlowSink, PacketMeta, Timestamp};
+use flow::naming::Template;
+use output::report::{Report, Summary};
+use output::{console, hooks, pcapfile, semlock, split};
+use sys::{privs, signals};
 
 /// Reports nowhere, for `-c` and `-S enable_report=0`.
 struct NoReport;

@@ -7,11 +7,12 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
-use crate::console;
-use crate::decode::{LinkInfo, Segment, TH_ACK, TH_FIN, TH_RST, TH_SYN};
-use crate::naming::{NameInfo, Template};
+use crate::capture::decode::{LinkInfo, Segment, TH_ACK, TH_FIN, TH_RST, TH_SYN};
+use crate::flow::naming::{NameInfo, Template};
+use crate::flow::stream::{self, Seen};
+use crate::log;
+use crate::output::console;
 use crate::post;
-use crate::stream::{self, Seen};
 
 /// Packet timestamp: seconds and microseconds since the Unix epoch.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -160,9 +161,9 @@ struct SavedFlow {
 
 pub struct Demux<'a> {
     /// `tcp_cmd`, `http_cmd` and the alert descriptors (SPEC.md 13.5).
-    pub hooks: crate::hooks::Hooks,
+    pub hooks: crate::output::hooks::Hooks,
     /// `-L`: held while a segment is printed (SPEC.md 9.4).
-    pub lock: Option<crate::semlock::SemLock>,
+    pub lock: Option<crate::output::semlock::SemLock>,
     opt: Options,
     sink: &'a mut dyn FlowSink,
     flows: HashMap<FlowKey, Flow>,
@@ -182,7 +183,7 @@ impl<'a> Demux<'a> {
         Demux {
             opt,
             sink,
-            hooks: crate::hooks::Hooks::none(),
+            hooks: crate::output::hooks::Hooks::none(),
             lock: None,
             flows: HashMap::new(),
             saved: VecDeque::new(),
@@ -701,24 +702,4 @@ pub fn default_max_open() -> usize {
         256
     };
     n.saturating_sub(6).max(1)
-}
-
-pub mod log {
-    use std::sync::atomic::{AtomicI32, Ordering};
-
-    static LEVEL: AtomicI32 = AtomicI32::new(1);
-
-    pub fn set_level(level: i32) {
-        LEVEL.store(level, Ordering::Relaxed);
-    }
-
-    pub fn debug(level: i32, msg: &str) {
-        if LEVEL.load(Ordering::Relaxed) >= level {
-            eprintln!("tcpflow: {msg}");
-        }
-    }
-
-    pub fn error(msg: &str) {
-        eprintln!("tcpflow: {msg}");
-    }
 }

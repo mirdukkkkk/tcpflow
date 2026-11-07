@@ -4,8 +4,8 @@ use std::fs::File;
 use std::io::{self, BufWriter, Write};
 use std::net::IpAddr;
 
-use crate::demux::{Flow, FlowSink, Timestamp};
-use crate::naming::iso8601;
+use crate::flow::demux::{Flow, FlowSink, Timestamp};
+use crate::flow::naming::iso8601;
 use crate::post;
 
 pub struct Report {
