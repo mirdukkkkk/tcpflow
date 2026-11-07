@@ -1,6 +1,6 @@
 //! Command line options (SPEC.md section 2).
 
-use crate::flow::naming::{DEFAULT_TEMPLATE, apply_f_flags};
+use crate::flow::naming::{DEFAULT_TEMPLATE, apply_f_flags, has_counter_code};
 use crate::post;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -165,7 +165,7 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
             Short('o') => cfg.outdir = value(&mut p)?,
             Short('T') => {
                 cfg.template = value(&mut p)?;
-                if !cfg.template.contains("%c") {
+                if !has_counter_code(&cfg.template) {
                     cfg.template.push_str("%C%c");
                 }
             }
@@ -270,15 +270,87 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
     Ok(Action::Run(Box::new(cfg)))
 }
 
-pub fn usage(level: u32) {
-    println!("TCPFLOW version {VERSION}\n");
-    println!("usage: tcpflow [-BcCDhIJpqsvV0g] [-b max_bytes] [-d debug_level] [-f max_fds]");
-    println!(
-        "       [-F[ctTXMkmg]] [-i iface] [-l] [-L semlock] [-m min_bytes] [-o outdir] [-r file] [-R file]"
+/// The help text: `-h` lists the options, `-hh` adds parameters and file name codes.
+pub fn usage(level: u32) -> String {
+    let mut s = format!(
+        "TCPFLOW version {VERSION}
+
+usage: tcpflow [-aBcCDgIJKpqsvVZ0] [-b max_bytes] [-d debug_level] [-e|-x|-E name]
+               [-f max_fds] [-F[ctTXMkmg]] [-i iface] [-l] [-L semlock] [-m bytes]
+               [-o outdir] [-r file] [-R file] [-S name=value] [-T template]
+               [-U user[:group]] [-w file] [-X xmlfile] [-z chroot_dir] [expression]
+"
     );
-    println!("       [-S name=value] [-T template] [-U user[:group]] [-w file] [-X xmlfile]");
-    println!("       [-z chroot_dir] [expression]");
-    if level > 1 {
-        println!("\nSee SPEC.md for every option and the filename template codes.");
+    if level < 1 {
+        return s;
     }
+    s.push_str(
+        "
+  -r file      read packets from a capture file (repeatable; - is stdin; .gz .bz2 .xz .zip)
+  -R file      read a file only to finish flows that are already open
+  -l           treat the remaining arguments as -r files instead of a filter
+  -i iface     capture on a network interface (default: the first one)
+  -p           do not put the interface into promiscuous mode
+  -o outdir    output directory (default .)
+  -T template  flow file name template (see -hh)
+  -F flags     name and output flags: c t T k m g, X (no flow files), M (MD5)
+  -b max_bytes store at most this many bytes per flow
+  -m bytes     a sequence gap larger than this starts a new flow (default 16777216)
+  -f max_fds   maximum number of open flow files
+  -X file      write the DFXML report here (default outdir/report.xml)
+  -c           print flow data to stdout instead of files, no report
+  -C           like -c, without the flow name before each segment
+  -D           print as hex dump (implies -B)
+  -B           print bytes as they are; -s replaces non-printable ones (default)
+  -0           no newline after each printed segment
+  -g           colour printed segments by direction
+  -J           print segments as JSON lines (implies -c unless -C)
+  -L name      serialise printing across processes with a named semaphore
+  -I           write a .findx packet index next to each flow file
+  -K           write one pcap file per flow instead of the data
+  -w file      write packets that were not processed as TCP to a pcap file
+  -a           post-process flows: HTTP bodies and MD5
+  -e name      enable a post-processor (http, md5); -x disables one;
+               -E disables all, then enables one
+  -Z           do not decompress gzip or deflate HTTP bodies
+  -S name=val  set a parameter (see -hh)
+  -U user      drop root privileges after opening the first input
+  -z dir       chroot to dir when dropping privileges (needs -U)
+  -q           no warning about too many files
+  -d n, -v     debug level n; -v is -d 10
+  -V           print the version; -h, -hh: this help
+  expression   a libpcap filter, such as 'tcp port 80'
+",
+    );
+    if level < 2 {
+        return s;
+    }
+    s.push_str(
+        "
+parameters (-S name=value):
+  enable_report=0          no report
+  tdelta=N                 add N seconds to every timestamp
+  tcp_timeout=N            close flows idle for more than N seconds
+  tcp_cmd=CMD              run CMD with each closed flow file as argument
+  http_cmd=CMD             run CMD with each HTTP body file as argument
+  tcp_alert_fd=N           write open/close lines for flow files to descriptor N
+  http_alert_fd=N          the same for HTTP body files
+  http_max_body=N          largest HTTP body file, 0 for no limit (default 1 GiB)
+  packet-buffer-timeout=N  libpcap read timeout in milliseconds (default 10)
+
+file name template codes (-T), default %A.%a-%B.%b%V%v%C%c:
+  %A %a        source address, source port (5 digits)
+  %B %b        destination address, destination port
+  %E %e        source, destination MAC address (zeros if not Ethernet)
+  %V %v        '--' and the VLAN ID, if the flow has one
+  %T %t        flow start, ISO 8601 UTC and Unix seconds
+  %c %C %#     connection counter if > 0, 'c' if > 0, counter always
+  %N %K %M %G  flow number in groups of 3 digits: units, thousands,
+               millions, billions (for directory trees, -Fk -Fm -Fg)
+  %S           session ID, 20 digits
+  %%           a literal %
+  '/' in the expanded name creates directories
+",
+    );
+    s
 }

@@ -35,7 +35,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(Action::Help(level)) => {
-            cli::usage(level);
+            print!("{}", cli::usage(level));
             ExitCode::SUCCESS
         }
         Ok(Action::Run(cfg)) => match run(&cfg) {
@@ -47,7 +47,7 @@ fn main() -> ExitCode {
         },
         Err(e) => {
             eprintln!("tcpflow: {e}");
-            cli::usage(1);
+            eprint!("{}", cli::usage(0));
             ExitCode::FAILURE
         }
     }

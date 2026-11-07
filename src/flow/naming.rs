@@ -165,9 +165,7 @@ pub fn apply_f_flags(template: &mut String, flags: &str) -> Vec<char> {
     let mut unknown = Vec::new();
     for flag in flags.chars() {
         match flag {
-            'c' => {
-                *template = template.replace("%C%c", "c%#").replace("%c", "%#");
-            }
+            'c' => *template = counter_always(template),
             't' => template.insert_str(0, "%tT"),
             'T' => template.insert_str(0, "%T"),
             'k' => template.insert_str(0, "%K/"),
@@ -178,6 +176,42 @@ pub fn apply_f_flags(template: &mut String, flags: &str) -> Vec<char> {
         }
     }
     unknown
+}
+
+/// `-Fc`: `%C%c` becomes `c%#` and `%c` becomes `%#`. A literal `%%` stays.
+fn counter_always(template: &str) -> String {
+    let mut out = String::new();
+    let mut rest = template;
+    while let Some(i) = rest.find('%') {
+        out.push_str(&rest[..i]);
+        rest = &rest[i..];
+        let (replacement, n) = if rest.starts_with("%%") {
+            ("%%", 2)
+        } else if rest.starts_with("%C%c") {
+            ("c%#", 4)
+        } else if rest.starts_with("%c") {
+            ("%#", 2)
+        } else {
+            ("%", 1)
+        };
+        out.push_str(replacement);
+        rest = &rest[n..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Does `template` contain the `%c` code (not a literal `%%c`)?
+pub fn has_counter_code(template: &str) -> bool {
+    let mut rest = template;
+    while let Some(i) = rest.find('%') {
+        rest = &rest[i..];
+        if rest.starts_with("%c") {
+            return true;
+        }
+        rest = &rest[rest.len().min(2)..];
+    }
+    false
 }
 
 fn push_addr(s: &mut String, addr: IpAddr) {
@@ -296,6 +330,16 @@ mod tests {
     fn invalid_templates() {
         assert!(Template::parse("%A%").is_err());
         assert!(Template::parse("%Q").is_err());
+    }
+
+    #[test]
+    fn literal_percent_is_not_a_code() {
+        let mut t = "%%c-%c-%C%c".to_string();
+        apply_f_flags(&mut t, "c");
+        assert_eq!(t, "%%c-%#-c%#");
+        assert!(!has_counter_code("%%c"));
+        assert!(has_counter_code("%%%c"));
+        assert!(has_counter_code("x%c"));
     }
 
     #[test]

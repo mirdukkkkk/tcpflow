@@ -26,6 +26,11 @@ fn version() {
 fn invalid_option() {
     let out = tcpflow(&["--no-such-option"]);
     assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty(), "usage goes to stderr (SPEC.md 2)");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("usage: tcpflow"));
+    let help = tcpflow(&["-h"]);
+    assert!(help.status.success());
+    assert!(String::from_utf8_lossy(&help.stdout).contains("-K "));
 }
 
 #[test]
