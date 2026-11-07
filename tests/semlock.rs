@@ -60,3 +60,48 @@ fn a_semaphore_that_cannot_be_opened_is_an_error() {
     assert_eq!(out.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&out.stderr).starts_with(&format!("tcpflow: -L {name}: ")));
 }
+
+#[test]
+fn a_stop_while_waiting_ends_the_run() {
+    let name = format!("/tcpflow-test-stop-{}", std::process::id());
+    let c = CString::new(name.clone()).unwrap();
+    // SAFETY: a valid name; the semaphore is checked below.
+    let sem = unsafe {
+        libc::sem_open(
+            c.as_ptr(),
+            libc::O_CREAT,
+            0o600 as libc::c_uint,
+            0 as libc::c_uint,
+        )
+    };
+    assert_ne!(sem, libc::SEM_FAILED);
+    let mut child = Command::new(TCPFLOW)
+        .args(["-c", "-L", &name, "-r", PCAP])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    // SAFETY: plain calls on a child we started and a semaphore we opened.
+    unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGINT) };
+    let start = std::time::Instant::now();
+    let status = loop {
+        if let Some(s) = child.try_wait().unwrap() {
+            break Some(s);
+        }
+        if start.elapsed() > Duration::from_secs(5) {
+            child.kill().unwrap();
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    unsafe {
+        libc::sem_close(sem);
+        libc::sem_unlink(c.as_ptr());
+    }
+    assert!(
+        status
+            .expect("SIGINT did not stop tcpflow waiting for -L")
+            .success()
+    );
+}

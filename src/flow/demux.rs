@@ -430,7 +430,13 @@ impl<'a> Demux<'a> {
         }
         let to_server = f.direction == Direction::ClientToServer;
         let name = f.path.as_deref().unwrap();
-        let held = self.lock.as_ref().map(|l| l.hold()).transpose()?;
+        let held = match &self.lock {
+            Some(lock) => match lock.hold()? {
+                Some(held) => Some(held),
+                None => return Ok(()), // stopped while waiting
+            },
+            None => None,
+        };
         let mut out = io::stdout().lock();
         console::print(
             &mut out,
@@ -665,7 +671,7 @@ impl<'a> Demux<'a> {
             let bodies = results.http.iter().flatten().map(|b| b.path.as_str());
             self.hooks.flow_closed(path, bodies);
         }
-        if self.saved.len() > SAVED_FLOWS {
+        if self.saved.len() >= SAVED_FLOWS {
             self.saved.pop_front();
         }
         self.saved.push_back(SavedFlow {
@@ -698,7 +704,7 @@ fn with_path(e: io::Error, path: &Path) -> io::Error {
     io::Error::new(e.kind(), format!("cannot create {}: {e}", path.display()))
 }
 
-fn is_too_many_files(e: &io::Error) -> bool {
+pub fn is_too_many_files(e: &io::Error) -> bool {
     matches!(e.raw_os_error(), Some(libc::EMFILE) | Some(libc::ENFILE))
 }
 

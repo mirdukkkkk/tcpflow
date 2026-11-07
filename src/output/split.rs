@@ -6,7 +6,7 @@ use std::io::{self, BufWriter, Write};
 use std::path::Path;
 
 use crate::capture::decode::Ports;
-use crate::flow::demux::{FlowKey, Timestamp, default_max_open};
+use crate::flow::demux::{FlowKey, Timestamp, default_max_open, is_too_many_files};
 use crate::flow::naming::{NameInfo, Template};
 use crate::output::pcapfile::{Record, write_header, write_record};
 use crate::sys::privs::output_file;
@@ -82,11 +82,8 @@ impl Splitter {
                 }
             }
             self.make_room()?;
-            let file = output_file()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(&path)?;
+            let file =
+                self.open_file(output_file().write(true).create(true).truncate(true), &path)?;
             let mut file = BufWriter::new(file);
             write_header(&mut file, self.linktype, SNAPLEN)?;
             self.open += 1;
@@ -100,8 +97,8 @@ impl Splitter {
             );
         } else if self.outputs[&key].file.is_none() {
             self.make_room()?;
-            let path = &self.outputs[&key].path;
-            let file = output_file().append(true).open(path)?;
+            let path = self.outputs[&key].path.clone();
+            let file = self.open_file(output_file().append(true), &path)?;
             self.outputs.get_mut(&key).unwrap().file = Some(BufWriter::new(file));
             self.open += 1;
         }
@@ -110,11 +107,26 @@ impl Splitter {
         write_record(out.file.as_mut().unwrap(), rec)
     }
 
+    /// Open `path`, closing the least recently written files while the system has
+    /// no descriptors left (SPEC.md 8).
+    fn open_file(&mut self, options: &std::fs::OpenOptions, path: &str) -> io::Result<File> {
+        loop {
+            match options.open(path) {
+                Err(e) if is_too_many_files(&e) && self.open > 0 => self.close_oldest()?,
+                result => return result,
+            }
+        }
+    }
+
     /// Close the least recently written file if the limit is reached (SPEC.md 8, D3).
     fn make_room(&mut self) -> io::Result<()> {
         if self.open < self.max_open {
             return Ok(());
         }
+        self.close_oldest()
+    }
+
+    fn close_oldest(&mut self) -> io::Result<()> {
         let oldest = self
             .outputs
             .iter()
@@ -123,9 +135,9 @@ impl Splitter {
             .map(|(k, _)| *k);
         if let Some(key) = oldest {
             if let Some(mut f) = self.outputs.get_mut(&key).unwrap().file.take() {
+                self.open -= 1;
                 f.flush()?;
             }
-            self.open -= 1;
         }
         Ok(())
     }

@@ -29,15 +29,19 @@ impl SemLock {
         Ok(SemLock { sem })
     }
 
-    pub fn hold(&self) -> io::Result<Held<'_>> {
+    /// Wait for the semaphore. `None` if a stop was requested while waiting.
+    pub fn hold(&self) -> io::Result<Option<Held<'_>>> {
         // SAFETY: sem is open until drop.
         while unsafe { libc::sem_wait(self.sem) } != 0 {
             let e = io::Error::last_os_error();
             if e.kind() != io::ErrorKind::Interrupted {
                 return Err(e);
             }
+            if crate::sys::signals::stopped() {
+                return Ok(None);
+            }
         }
-        Ok(Held(self))
+        Ok(Some(Held(self)))
     }
 }
 
