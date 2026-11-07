@@ -10,6 +10,8 @@ readme = "README.md"
 
 [dependencies]
 lexopt = "0.3"
+libc = "0.2"
+pcap = "2.5"
 
 [profile.release]
 lto = true
