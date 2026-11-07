@@ -30,6 +30,7 @@ const ETHERTYPE_VLAN: u16 = 0x8100;
 const ETHERTYPE_8021AD: u16 = 0x88a8;
 const ETHERTYPE_QINQ: u16 = 0x9100;
 const ETHERTYPE_MPLS: u16 = 0x8847;
+const ETHERTYPE_MPLS_MULTICAST: u16 = 0x8848;
 const IPPROTO_TCP: u8 = 6;
 const IP6_HOPOPTS: u8 = 0;
 const IP6_ROUTING: u8 = 43;
@@ -187,7 +188,14 @@ fn strip_link(linktype: i32, f: &[u8]) -> Option<(&[u8], LinkInfo)> {
                 return None;
             }
             let mut at = 16;
-            if be16(f, 14) == ETHERTYPE_MPLS {
+            let protocol = be16(f, 14);
+            if !matches!(
+                protocol,
+                ETHERTYPE_IP | ETHERTYPE_IPV6 | ETHERTYPE_MPLS | ETHERTYPE_MPLS_MULTICAST
+            ) {
+                return None;
+            }
+            if matches!(protocol, ETHERTYPE_MPLS | ETHERTYPE_MPLS_MULTICAST) {
                 // skip MPLS labels up to the one with the bottom-of-stack bit
                 loop {
                     let label = f.get(at..at + 4)?;
@@ -289,6 +297,9 @@ fn decode_tcp<'a>(src: IpAddr, dst: IpAddr, tcp: &'a [u8], link: LinkInfo) -> De
         return Decoded::UnprocessedIp;
     }
     let header_len = (tcp[12] >> 4) as usize * 4;
+    if header_len < 20 {
+        return Decoded::UnprocessedIp; // malformed: the header would be taken as data (D41)
+    }
     let payload = tcp.get(header_len..).unwrap_or(&[]);
     Decoded::Tcp(
         Segment {
@@ -551,6 +562,29 @@ mod tests {
         let mut f = ip6(IP6_HOPOPTS, &[IPPROTO_TCP], &[]);
         f[4..6].copy_from_slice(&8u16.to_be_bytes());
         assert_eq!(decode(dlt::RAW, &f), Decoded::UnprocessedIp);
+    }
+
+    #[test]
+    fn sll_protocol_selects_ip() {
+        let mut f = vec![0u8; 16];
+        f[14..16].copy_from_slice(&ETHERTYPE_IP.to_be_bytes());
+        f.extend_from_slice(&ip4(&tcp(0, 0, b"x"), None));
+        assert!(matches!(decode(dlt::LINUX_SLL, &f), Decoded::Tcp(..)));
+        f[14..16].copy_from_slice(&0x0806u16.to_be_bytes()); // ARP
+        assert_eq!(decode(dlt::LINUX_SLL, &f), Decoded::Other);
+    }
+
+    #[test]
+    fn tcp_header_shorter_than_20_bytes_is_unprocessed() {
+        for off in [0u8, 4] {
+            let mut t = tcp(TH_ACK, 7, b"data");
+            t[12] = off << 4;
+            assert_eq!(
+                decode(dlt::RAW, &ip4(&t, None)),
+                Decoded::UnprocessedIp,
+                "{off}"
+            );
+        }
     }
 
     #[test]

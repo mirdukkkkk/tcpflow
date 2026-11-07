@@ -127,7 +127,7 @@ printed at debug level 1. Capture runs until SIGINT, SIGTERM or SIGHUP
 | `RAW` (12, 14, 101) | IP directly. The version nibble selects IPv4 or IPv6. |
 | `PPP` (9) | 4-byte header skipped. |
 | `PPP_ETHER` (51) | PPPoE: 6-byte PPPoE header and 2-byte PPP protocol skipped. |
-| `LINUX_SLL` (113) | 16-byte cooked header; protocol field selects IPv4 or IPv6. |
+| `LINUX_SLL` (113) | 16-byte cooked header; the protocol field selects IPv4 (0x0800) or IPv6 (0x86dd). For MPLS (0x8847, 0x8848) the labels up to the bottom of the stack are skipped and the IP version nibble selects. Other protocols are ignored (D42). |
 | `IEEE802_11` (105), `IEEE802_11_RADIO` (127), `PRISM_HEADER` (119) | 802.11 data frames with LLC/SNAP (section 4.1.1). |
 
 An unsupported link type is a fatal error: `unknown datalink type N`.
@@ -193,8 +193,9 @@ The packet is ignored when:
 
 ### 4.4 TCP
 
-- With fewer than 20 bytes of TCP header, the segment is ignored. In `-K`
-  mode only the 4 bytes of the ports are needed (section 11).
+- With fewer than 20 bytes of TCP header, or a data offset (`th_off` × 4)
+  below 20, the segment is ignored (D41). In `-K` mode only the 4 bytes
+  of the ports are needed (section 11).
 - The data offset (`th_off` × 4) is the header length. If it is larger
   than the segment, the segment has no data.
 - Flags used: SYN, ACK, FIN, RST.
@@ -752,6 +753,8 @@ Based on #281, with the problems found in its review fixed (D22–D24):
 | D38 | Compressed HTTP bodies are decompressed without a limit: a 1 MB response can become a body file of a gigabyte or more. | `http_max_body` (section 13.2). |
 | D39 | With `-c`, `-C` or `-FX` the stream position does not advance: a flow longer than `-m` is split into a new flow at every segment after the limit, and a FIN never closes a flow. | The stream is followed the same way in every mode (sections 5, 6); only the file writes are left out. |
 | D40 | `-K` files whose expanded names are the same overwrite each other, and lose packets. The header has the DLT value of the reading system (12 for raw IP on Linux) instead of the LINKTYPE value (101). | Such flows share one file (section 11); the header has the LINKTYPE value. |
+| D41 | A TCP data offset below 5 is taken as is, so the TCP header (or part of it) is written to the flow as data. | The segment is malformed and ignored (section 4.4). |
+| D42 | The protocol field of Linux cooked captures is not checked: ARP and other frames are parsed as IP if the version nibble fits. | Only IPv4, IPv6 and MPLS are decoded (section 4.1). |
 
 Differences that only affect level C outputs are not listed.
 
