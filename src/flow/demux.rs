@@ -96,7 +96,10 @@ pub struct Flow {
     pos: u64,
     /// Logical stream size: the furthest offset reached (SPEC.md 6.4).
     pub last_byte: u64,
-    seen: Option<Seen>,
+    seen: Seen,
+    /// Shifts for data before the guessed ISN, and their total size (SPEC.md 6.2).
+    shifts: u32,
+    shifted: u64,
 
     /// The flow file, once one has been created (or the console name, see `created`).
     pub path: Option<String>,
@@ -150,6 +153,9 @@ pub struct Options {
 pub trait FlowSink {
     fn flow_closed(&mut self, flow: &Flow, post: &post::Results) -> io::Result<()>;
 }
+
+/// At most this many shifts per flow for data before the guessed ISN (SPEC.md 6.2).
+const MAX_SHIFTS: u32 = 16;
 
 /// The last closed flows, for recognising retransmissions after the close (SPEC.md 5.5).
 const SAVED_FLOWS: usize = 100;
@@ -294,7 +300,9 @@ impl<'a> Demux<'a> {
                 fin_size: 0,
                 pos: 0,
                 last_byte: 0,
-                seen: Some(Seen::default()),
+                seen: Seen::default(),
+                shifts: 0,
+                shifted: 0,
                 path: None,
                 created: false,
                 file: None,
@@ -352,7 +360,7 @@ impl<'a> Demux<'a> {
         } else {
             f.last_use = clock;
         }
-        let seen = f.seen.as_ref().map_or(0, |s| s.len() as u32);
+        let seen = f.seen.len() as u32;
         if f.fin_count > 0 && seen == f.fin_size {
             self.close(&key)?;
         }
@@ -449,12 +457,18 @@ impl<'a> Demux<'a> {
         };
         let mut insert: u64 = 0;
         if (offset as i64) < 0 {
-            if syn_count > 0 {
+            insert = u64::from((offset as i64).wrapping_neg() as u32);
+            let f = self.flows.get_mut(key).unwrap();
+            // a SYN fixes the start; otherwise shifting is limited, because each
+            // shift rewrites the file (SPEC.md 6.2, D37)
+            if syn_count > 0
+                || f.shifts >= MAX_SHIFTS
+                || f.shifted + insert > u64::from(self.opt.max_seek)
+            {
                 log::debug(2, "data before the start of the stream; ignored");
-                self.flows.get_mut(key).unwrap().violations += 1;
+                f.violations += 1;
                 return Ok(());
             }
-            insert = u64::from((offset as i64).wrapping_neg() as u32);
             offset = 0;
         }
         let mut wlength = length;
@@ -478,7 +492,10 @@ impl<'a> Demux<'a> {
             f.pos = 0;
             f.nsn = f.isn.wrapping_add(1);
             f.out_of_order += 1;
-            f.seen = None;
+            f.shifts += 1;
+            f.shifted += insert;
+            f.seen.shift(insert);
+            f.last_byte += insert;
             if let Some(index) = f.index.take() {
                 drop(index);
                 let path = index_path(f.path.as_deref().unwrap());
@@ -503,9 +520,7 @@ impl<'a> Demux<'a> {
         if let Some(index) = f.index.as_mut() {
             writeln!(index, "{}|{}.{:06}|{}", f.pos, ts.secs, ts.usecs, wlength)?;
         }
-        if let Some(seen) = f.seen.as_mut() {
-            seen.add(f.pos, length);
-        }
+        f.seen.add(f.pos, length);
         f.pos += length;
         f.nsn = f.nsn.wrapping_add(length as u32);
         f.last_byte = f.last_byte.max(f.pos);

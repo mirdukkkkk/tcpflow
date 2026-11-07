@@ -44,6 +44,14 @@ impl Seen {
     pub fn len(&self) -> u64 {
         self.total
     }
+
+    /// Every offset moves up by `by` (SPEC.md 6.2).
+    pub fn shift(&mut self, by: u64) {
+        self.ranges = std::mem::take(&mut self.ranges)
+            .into_iter()
+            .map(|(s, e)| (s + by, e + by))
+            .collect();
+    }
 }
 
 /// Write `data` at `offset`.
@@ -52,8 +60,8 @@ pub fn write_at(file: &mut File, offset: u64, data: &[u8]) -> io::Result<()> {
     file.write_all(data)
 }
 
-/// Move the whole content of `file` up by `by` bytes. The first `by` bytes keep their
-/// old content (or become a hole); the caller overwrites them.
+/// Move the whole content of `file` up by `by` bytes; the first `by` bytes become
+/// zeros, as any part of the stream that has not been seen (SPEC.md 6.1, 6.2).
 pub fn shift_up(file: &mut File, by: u64) -> io::Result<()> {
     const CHUNK: u64 = 64 * 1024;
     let size = file.metadata()?.len();
@@ -66,6 +74,13 @@ pub fn shift_up(file: &mut File, by: u64) -> io::Result<()> {
         file.read_exact(&mut buf[..n as usize])?;
         write_at(file, start + by, &buf[..n as usize])?;
         end = start;
+    }
+    buf.fill(0);
+    let mut at = 0;
+    while at < by.min(size) {
+        let n = (by.min(size) - at).min(CHUNK);
+        write_at(file, at, &buf[..n as usize])?;
+        at += n;
     }
     Ok(())
 }
@@ -126,7 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn shift_keeps_old_prefix() {
+    fn shift_leaves_zeros_before_the_old_content() {
         let dir = std::env::temp_dir().join(format!("tcpflow-shift-{}", std::process::id()));
         let mut f = File::options()
             .read(true)
@@ -140,7 +155,7 @@ mod tests {
         let mut out = Vec::new();
         f.seek(SeekFrom::Start(0)).unwrap();
         f.read_to_end(&mut out).unwrap();
-        assert_eq!(out, b"ababcdef");
+        assert_eq!(out, b"\0\0abcdef");
         std::fs::remove_file(&dir).unwrap();
     }
 }

@@ -284,7 +284,13 @@ If a segment's offset is negative:
   counted and ignored;
 - otherwise the ISN was guessed wrong. The file content is shifted right
   by the missing bytes, the ISN moves back by the same amount, and the
-  segment is written at offset 0. This counts as one out-of-order event.
+  segment is written at offset 0. The bytes before the old content that
+  the segment does not cover are zeros. The seen ranges (section 5.4)
+  and the logical size move up with the content. This counts as one
+  out-of-order event;
+- a flow is shifted at most 16 times and by at most `-m` bytes in total,
+  because each shift rewrites the file. Data that would go beyond these
+  limits is a violation and is ignored (D37).
 
 ### 6.3 Keepalives
 
@@ -719,6 +725,7 @@ Based on #281, with the problems found in its review fixed (D22–D24):
 | D34 | `-L` always fails with `(null): attempt to create lock pthreads not present`, because `configure` never defines `HAVE_PTHREAD_H`; the semaphore calls themselves are behind `HAVE_PTHREAD`, which is never defined either. A failing `sem_open` is not checked. | Section 9.4. Fixed in 1.x as well (`fix/semlock`). |
 | D35 | With `-a` or `-e netviz`, and when built with cairo, `report.pdf` is written: a one-page summary of the capture (time histogram, top addresses and ports). | No `report.pdf` (section 18). |
 | D36 | Output files that already exist are opened through symbolic links: someone who can write to the output directory can plant `report.xml` or a `-K` file as a link and make tcpflow (often root) truncate and overwrite another file. | Links in the output directory are not followed (section 16). |
+| D37 | A shift for data before the guessed ISN (6.2) keeps old bytes in front of the moved content, forgets the seen ranges, so the FIN no longer closes the flow, and leaves the logical size unchanged, so `filesize` is too small. Shifts are unlimited: a few packets make a file of hundreds of megabytes. | Section 6.2. |
 
 Differences that only affect level C outputs are not listed.
 
