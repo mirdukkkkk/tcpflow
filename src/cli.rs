@@ -32,6 +32,8 @@ pub struct Config {
     pub enable_report: bool,
     pub console: Console,
     pub index: bool,
+    /// `-K`: one pcap file per flow (SPEC.md 11).
+    pub split: bool,
     pub quiet: bool,
     pub debug: i32,
     pub tdelta: i64,
@@ -48,7 +50,7 @@ pub enum Action {
 const MAX_SEEK: u32 = 16 * 1024 * 1024;
 
 /// Options that SPEC.md assigns to later phases.
-const NOT_YET: &[char] = &['K', 'w', 'U', 'z', 'i', 'p', 'J', 'L'];
+const NOT_YET: &[char] = &['w', 'U', 'z', 'i', 'p', 'J', 'L'];
 
 /// Turn a post-processor on or off by name (`-e`, `-x`, `-E`).
 fn set_post(post: &mut post::Options, name: &str, on: bool) -> Result<(), String> {
@@ -102,6 +104,7 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
         enable_report: true,
         console: Console::default(),
         index: false,
+        split: false,
         quiet: false,
         debug: 1,
         tdelta: 0,
@@ -166,6 +169,7 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
             Short('0') => cfg.console.no_newline = true,
             Short('g') => cfg.console.color = true,
             Short('I') => cfg.index = true,
+            Short('K') => cfg.split = true,
             Short('q') => cfg.quiet = true,
             Short('S') => {
                 let v = value(&mut p)?;

@@ -190,6 +190,10 @@ impl<'a> Demux<'a> {
         }
     }
 
+    pub fn template(&self) -> &Template {
+        &self.opt.template
+    }
+
     pub fn flows_created(&self) -> u64 {
         self.flow_counter
     }

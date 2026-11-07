@@ -25,9 +25,6 @@ jobs:
 
   conformance:
     runs-on: ubuntu-latest
-    # Reports progress against the 1.6.2 golden output; becomes blocking once
-    # the first release (phase 1 of SPEC.md) is feature complete.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

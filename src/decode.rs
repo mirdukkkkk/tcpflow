@@ -90,7 +90,35 @@ pub fn decode(linktype: i32, frame: &[u8]) -> Decoded<'_> {
     let Some((ip, link)) = strip_link(linktype, frame) else {
         return Decoded::Other;
     };
-    decode_ip(ip, link)
+    match ip_tcp(ip) {
+        IpTcp::Tcp(src, dst, tcp) => decode_tcp(src, dst, tcp, link),
+        IpTcp::UnprocessedIp => Decoded::UnprocessedIp,
+        IpTcp::Other => Decoded::Other,
+    }
+}
+
+/// The flow addresses of a TCP packet, for `-K`: only the ports are needed from the
+/// TCP header, so a capture with a short snaplen still works (SPEC.md 11).
+pub struct Ports {
+    pub src: IpAddr,
+    pub dst: IpAddr,
+    pub sport: u16,
+    pub dport: u16,
+    pub link: LinkInfo,
+}
+
+pub fn decode_ports(linktype: i32, frame: &[u8]) -> Option<Ports> {
+    let (ip, link) = strip_link(linktype, frame)?;
+    match ip_tcp(ip) {
+        IpTcp::Tcp(src, dst, tcp) if tcp.len() >= 4 => Some(Ports {
+            src,
+            dst,
+            sport: be16(tcp, 0),
+            dport: be16(tcp, 2),
+            link,
+        }),
+        _ => None,
+    }
 }
 
 /// Remove the link-layer header. Returns the IP bytes, or `None` if the frame does not
@@ -160,21 +188,29 @@ fn strip_link(linktype: i32, f: &[u8]) -> Option<(&[u8], LinkInfo)> {
     Some((ip, link))
 }
 
-/// Decode IPv4 or IPv6, selected by the version nibble (SPEC.md 4.2, 4.3).
-fn decode_ip<'a>(ip: &'a [u8], link: LinkInfo) -> Decoded<'a> {
+enum IpTcp<'a> {
+    /// Source, destination and the TCP bytes (header and data).
+    Tcp(IpAddr, IpAddr, &'a [u8]),
+    UnprocessedIp,
+    Other,
+}
+
+/// Find the TCP bytes in an IPv4 or IPv6 packet, selected by the version nibble
+/// (SPEC.md 4.2, 4.3).
+fn ip_tcp(ip: &[u8]) -> IpTcp<'_> {
     if ip.len() < 20 {
-        return Decoded::Other;
+        return IpTcp::Other;
     }
     match ip[0] >> 4 {
-        4 => decode_ip4(ip, link),
-        6 => decode_ip6(ip, link),
-        _ => Decoded::Other,
+        4 => ip4_tcp(ip),
+        6 => ip6_tcp(ip),
+        _ => IpTcp::Other,
     }
 }
 
-fn decode_ip4<'a>(ip: &'a [u8], link: LinkInfo) -> Decoded<'a> {
+fn ip4_tcp(ip: &[u8]) -> IpTcp<'_> {
     if ip[9] != IPPROTO_TCP || be16(ip, 6) & 0x1fff != 0 {
-        return Decoded::UnprocessedIp;
+        return IpTcp::UnprocessedIp;
     }
     let mut ip_len = be16(ip, 2) as usize;
     if ip_len == 0 {
@@ -182,17 +218,17 @@ fn decode_ip4<'a>(ip: &'a [u8], link: LinkInfo) -> Decoded<'a> {
     }
     let header_len = (ip[0] & 0x0f) as usize * 4;
     if header_len < 20 || header_len > ip_len || header_len > ip.len() {
-        return Decoded::UnprocessedIp;
+        return IpTcp::UnprocessedIp;
     }
     let end = ip_len.min(ip.len());
     let src = IpAddr::V4(Ipv4Addr::from(be32(ip, 12)));
     let dst = IpAddr::V4(Ipv4Addr::from(be32(ip, 16)));
-    decode_tcp(src, dst, &ip[header_len..end], link)
+    IpTcp::Tcp(src, dst, &ip[header_len..end])
 }
 
-fn decode_ip6<'a>(ip: &'a [u8], link: LinkInfo) -> Decoded<'a> {
+fn ip6_tcp(ip: &[u8]) -> IpTcp<'_> {
     if ip.len() < 40 || ip[6] != IPPROTO_TCP {
-        return Decoded::UnprocessedIp;
+        return IpTcp::UnprocessedIp;
     }
     let mut payload_len = be16(ip, 4) as usize;
     if payload_len == 0 {
@@ -201,11 +237,10 @@ fn decode_ip6<'a>(ip: &'a [u8], link: LinkInfo) -> Decoded<'a> {
     let end = (40 + payload_len).min(ip.len());
     let src: [u8; 16] = ip[8..24].try_into().unwrap();
     let dst: [u8; 16] = ip[24..40].try_into().unwrap();
-    decode_tcp(
+    IpTcp::Tcp(
         IpAddr::V6(Ipv6Addr::from(src)),
         IpAddr::V6(Ipv6Addr::from(dst)),
         &ip[40..end],
-        link,
     )
 }
 
@@ -328,6 +363,10 @@ mod tests {
     fn short_tcp_header_is_unprocessed() {
         let f = ip4(&[0x9c, 0x40], None);
         assert_eq!(decode(dlt::RAW, &f), Decoded::UnprocessedIp);
+        assert!(decode_ports(dlt::RAW, &f).is_none());
+        let f = ip4(&[0x9c, 0x40, 0x00, 0x50, 0x00, 0x00], None);
+        let p = decode_ports(dlt::RAW, &f).unwrap();
+        assert_eq!((p.sport, p.dport), (40000, 80));
     }
 
     #[test]

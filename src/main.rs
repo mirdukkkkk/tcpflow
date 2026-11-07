@@ -9,6 +9,7 @@ mod naming;
 mod post;
 mod report;
 mod signals;
+mod split;
 mod stream;
 
 use std::io;
@@ -119,18 +120,24 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
     );
 
     signals::install();
+    let mut splitter = cfg
+        .split
+        .then(|| split::Splitter::new(&cfg.outdir, demux.template().clone(), cfg.max_open));
     let mut ok = true;
-    demux.start_new_flows = true;
-    for path in &cfg.rfiles {
-        if !signals::stopped() {
-            ok &= read_file(&mut demux, cfg, path)?;
+    for (paths, new_flows) in [(&cfg.rfiles, true), (&cfg.big_r_files, false)] {
+        demux.start_new_flows = new_flows;
+        for path in paths {
+            if !signals::stopped() {
+                let engine: &mut dyn Engine = match splitter.as_mut() {
+                    Some(s) => s,
+                    None => &mut demux,
+                };
+                ok &= read_file(engine, cfg, path)?;
+            }
         }
     }
-    demux.start_new_flows = false;
-    for path in &cfg.big_r_files {
-        if !signals::stopped() {
-            ok &= read_file(&mut demux, cfg, path)?;
-        }
+    if let Some(s) = splitter {
+        s.finish().map_err(|e| e.to_string())?;
     }
     demux.close_all().map_err(|e| e.to_string())?;
     let summary = Summary {
@@ -150,10 +157,73 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
     })
 }
 
+/// What is done with every captured frame: reassembly or `-K` splitting.
+trait Engine {
+    fn start(&mut self, linktype: i32);
+    fn packet(
+        &mut self,
+        linktype: i32,
+        header: &pcap::PacketHeader,
+        data: &[u8],
+        ts: Timestamp,
+    ) -> Result<(), String>;
+}
+
+impl Engine for Demux<'_> {
+    fn start(&mut self, _: i32) {}
+
+    fn packet(
+        &mut self,
+        linktype: i32,
+        header: &pcap::PacketHeader,
+        data: &[u8],
+        ts: Timestamp,
+    ) -> Result<(), String> {
+        let meta = PacketMeta {
+            ts,
+            caplen: header.caplen,
+            len: header.len,
+        };
+        match decode::decode(linktype, data) {
+            Decoded::Tcp(seg, link) => {
+                self.process(&seg, link, &meta).map_err(|e| e.to_string())?
+            }
+            Decoded::UnprocessedIp => {}
+            Decoded::Other => return Ok(()),
+        }
+        self.expire(ts).map_err(|e| e.to_string())
+    }
+}
+
+impl Engine for split::Splitter {
+    fn start(&mut self, linktype: i32) {
+        self.set_linktype(linktype);
+    }
+
+    fn packet(
+        &mut self,
+        linktype: i32,
+        header: &pcap::PacketHeader,
+        data: &[u8],
+        ts: Timestamp,
+    ) -> Result<(), String> {
+        let Some(ports) = decode::decode_ports(linktype, data) else {
+            return Ok(());
+        };
+        let rec = split::Record {
+            secs: header.ts.tv_sec as u32,
+            usecs: header.ts.tv_usec as u32,
+            len: header.len,
+            data,
+        };
+        self.write(&ports, ts, &rec).map_err(|e| e.to_string())
+    }
+}
+
 /// Process one capture file. Returns false if it could not be read to the end.
-fn read_file(demux: &mut Demux, cfg: &Config, path: &str) -> Result<bool, String> {
+fn read_file(engine: &mut dyn Engine, cfg: &Config, path: &str) -> Result<bool, String> {
     let mut input = input::open(path)?;
-    let complete = read_packets(demux, cfg, path, &mut input.capture)?;
+    let complete = read_packets(engine, cfg, path, &mut input.capture)?;
     match input.finish(path) {
         Ok(()) => Ok(complete),
         Err(e) => {
@@ -164,7 +234,7 @@ fn read_file(demux: &mut Demux, cfg: &Config, path: &str) -> Result<bool, String
 }
 
 fn read_packets(
-    demux: &mut Demux,
+    engine: &mut dyn Engine,
     cfg: &Config,
     path: &str,
     cap: &mut pcap::Capture<pcap::Offline>,
@@ -177,6 +247,7 @@ fn read_packets(
     }
     cap.filter(&cfg.expression, true)
         .map_err(|e| format!("{}: {e}", cfg.expression))?;
+    engine.start(linktype);
     loop {
         if signals::stopped() {
             return Ok(true);
@@ -190,24 +261,11 @@ fn read_packets(
                 return Ok(false);
             }
         };
-        let meta = PacketMeta {
-            ts: Timestamp {
-                secs: packet.header.ts.tv_sec as i64 + cfg.tdelta,
-                usecs: packet.header.ts.tv_usec as i64,
-            },
-            caplen: packet.header.caplen,
-            len: packet.header.len,
+        let ts = Timestamp {
+            secs: packet.header.ts.tv_sec as i64 + cfg.tdelta,
+            usecs: packet.header.ts.tv_usec as i64,
         };
-        match decode::decode(linktype, packet.data) {
-            Decoded::Tcp(seg, link) => {
-                demux
-                    .process(&seg, link, &meta)
-                    .map_err(|e| e.to_string())?;
-            }
-            Decoded::UnprocessedIp => {}
-            Decoded::Other => continue,
-        }
-        demux.expire(meta.ts).map_err(|e| e.to_string())?;
+        engine.packet(linktype, packet.header, packet.data, ts)?;
     }
 }
 
