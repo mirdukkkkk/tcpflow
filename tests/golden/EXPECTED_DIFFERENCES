@@ -7,3 +7,8 @@
 #   tests/vlan-pcp.pcap:default D1 VLAN ID without priority bits
 tests/bug5.pcap:all D18 a flow identical to an earlier one was not post-processed
 samplePcaps/jpegs.cap:all D18 a flow identical to an earlier one was not post-processed
+tests/bug8.pcap:json D4 1.x takes IPv6 addresses and ports from the file name
+tests/local2.pcap:json D4 1.x takes IPv6 addresses and ports from the file name
+tests/local.pcap:json D4 1.x takes IPv6 addresses and ports from the file name
+tests/test3.pcap:json D4 1.x takes IPv6 addresses and ports from the file name
+tests/test4.pcap:json D4 1.x takes IPv6 addresses and ports from the file name

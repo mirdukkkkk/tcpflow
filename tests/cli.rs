@@ -27,3 +27,17 @@ fn invalid_option() {
     let out = tcpflow(&["--no-such-option"]);
     assert_eq!(out.status.code(), Some(1));
 }
+
+#[test]
+fn json_alone_implies_console_output() {
+    let dir = std::env::temp_dir().join(format!("tcpflow-test-json-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let pcap = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/test1.pcap");
+    let out = tcpflow(&["-J", "-o", dir.to_str().unwrap(), "-r", pcap]);
+    assert!(out.status.success());
+    assert_eq!(out.stdout, tcpflow(&["-c", "-J", "-r", pcap]).stdout);
+    assert!(out.stdout.starts_with(b"{\"src_host\":\"192.168.1.102\""));
+    let files = std::fs::read_dir(&dir).map_or(0, |d| d.count());
+    assert_eq!(files, 0, "-J writes no flow files and no report (D21)");
+    let _ = std::fs::remove_dir_all(&dir);
+}

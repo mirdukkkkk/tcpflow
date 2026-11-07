@@ -14,6 +14,7 @@ pub struct Console {
     pub force_binary: bool,
     pub no_newline: bool,
     pub color: bool,
+    pub json: bool,
 }
 
 #[derive(Debug)]
@@ -52,7 +53,7 @@ pub enum Action {
 const MAX_SEEK: u32 = 16 * 1024 * 1024;
 
 /// Options that SPEC.md assigns to later phases.
-const NOT_YET: &[char] = &['U', 'z', 'i', 'p', 'J', 'L'];
+const NOT_YET: &[char] = &['U', 'z', 'i', 'p', 'L'];
 
 /// Turn a post-processor on or off by name (`-e`, `-x`, `-E`).
 fn set_post(post: &mut post::Options, name: &str, on: bool) -> Result<(), String> {
@@ -171,6 +172,7 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
             Short('B') => cfg.console.force_binary = true,
             Short('0') => cfg.console.no_newline = true,
             Short('g') => cfg.console.color = true,
+            Short('J') => cfg.console.json = true,
             Short('I') => cfg.index = true,
             Short('K') => cfg.split = true,
             Short('w') => cfg.unprocessed = Some(value(&mut p)?),
@@ -215,6 +217,11 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
     } else {
         cfg.expression = rest.join(" ");
     }
+    // -J alone means -c (D21)
+    if cfg.console.json && !cfg.console.enabled {
+        cfg.console.enabled = true;
+        cfg.enable_report = false;
+    }
     // console output replaces non-printable bytes unless -B or -D (SPEC.md 9.1)
     cfg.console.strip_nonprint = !cfg.console.force_binary;
     Ok(Action::Run(Box::new(cfg)))
@@ -222,7 +229,7 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
 
 pub fn usage(level: u32) {
     println!("TCPFLOW version {VERSION}\n");
-    println!("usage: tcpflow [-BcCDhIqsvV0g] [-b max_bytes] [-d debug_level] [-f max_fds]");
+    println!("usage: tcpflow [-BcCDhIJqsvV0g] [-b max_bytes] [-d debug_level] [-f max_fds]");
     println!("       [-F[ctTXMkmg]] [-l] [-m min_bytes] [-o outdir] [-r file] [-R file]");
     println!("       [-S name=value] [-T template] [-w file] [-X xmlfile] [expression]");
     if level > 1 {

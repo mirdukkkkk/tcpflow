@@ -117,6 +117,7 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
                 strip_nonprint: cfg.console.strip_nonprint,
                 no_newline: cfg.console.no_newline,
                 color: cfg.console.color,
+                json: cfg.console.json,
             }),
             post: cfg.post,
         },

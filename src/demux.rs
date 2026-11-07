@@ -417,6 +417,7 @@ impl<'a> Demux<'a> {
         console::print(
             &mut io::stdout().lock(),
             copt,
+            key,
             name,
             to_server,
             &data[..length as usize],

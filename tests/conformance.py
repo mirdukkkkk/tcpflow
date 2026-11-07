@@ -33,8 +33,9 @@ RUNS = {
     "console": ["-c"],
     "console-hdr": ["-C", "-s"],
     "hex": ["-c", "-D"],
+    "json": ["-c", "-J"],
 }
-CONSOLE_RUNS = {"console", "console-hdr", "hex"}
+CONSOLE_RUNS = {"console", "console-hdr", "hex", "json"}
 NOT_COMPARED = {"report.xml", "report.pdf"}
 
 

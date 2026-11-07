@@ -65,7 +65,7 @@ Phase marks the order of implementation: **1** is the first release
 | `-B` | Raw bytes in console output instead of replacing non-printable ones. | 1 |
 | `-0` | No newline after each console packet. | 1 |
 | `-g` | Color console output by direction. | 1 |
-| `-J` | Console output as JSON lines (section 9.3). | 2 |
+| `-J` | Console output as JSON lines (section 9.3). Without `-C`, implies `-c` (D21). | 2 |
 | `-I` | Write a `.findx` packet index next to each flow file (section 10). | 1 |
 | `-K` | Write one pcap file per flow instead of reassembled data (section 11). | 2 |
 | `-w file` | Write IP packets that were not processed as TCP to a pcap file (section 12). | 2 |
@@ -320,7 +320,7 @@ at its stored position.
 
 ## 9. Console output
 
-With `-c` or `-C`, segments are printed in arrival order. No
+With `-c`, `-C` or `-J`, segments are printed in arrival order. No
 reassembly is done.
 
 ### 9.1 Text
@@ -350,14 +350,17 @@ non-printable bytes shown as `.`, then a newline.
 
 ### 9.3 JSON (`-J`)
 
-One JSON object per segment, followed by a newline unless `-0`:
+Step 3 of 9.1 prints one JSON object per segment (exactly this spacing,
+including the space after `"payload":`):
 
 ```json
-{"src_host":"192.168.1.102","src_port":50955,"dst_host":"74.125.19.104","dst_port":80,"payload":[71,69,84]}
+{"src_host":"192.168.1.102","src_port":50955,"dst_host":"74.125.19.104","dst_port":80,"payload": [71,69,84]}
 ```
 
-Addresses use their normal text form (no zero padding). This is a
-deliberate change from 1.6.2 (D4).
+`payload` holds the bytes as decimal numbers, after `-b` truncation.
+Addresses and ports come from the flow key, addresses in their normal
+text form (D4). `-D` takes precedence over `-J`; `-B` and `-s` have no
+effect. `-g` and `-0` work as in 9.1.
 
 ## 10. Packet index (`-I`)
 
@@ -536,6 +539,7 @@ Each `<fileobject>` (level B):
 | `console` | `-c` |
 | `console-hdr` | `-C -s` |
 | `hex` | `-c -D` |
+| `json` | `-c -J` |
 
 For each run the golden data contains:
 
@@ -600,6 +604,7 @@ As specified for 1.6.2 by #281:
 | D18 | Post-processing is skipped for a flow whose content is identical to an earlier flow (bulk_extractor's duplicate detection), so it gets no MD5 and its HTTP bodies are not extracted. | Every flow is post-processed. |
 | D19 | `-K` files of Ethernet captures have link type 6 (Token Ring), so tcpdump and Wireshark decode every packet wrongly. | The link type of the input. Fixed in 1.x as well (`fix/k-linktype`). |
 | D20 | `-w` copies the first 24 bytes of the first `-r` file as the pcap header and aborts if they are not a little-endian pcap header, so a pcapng, big-endian or compressed input makes tcpflow crash. | libpcap writes the header (section 12). Fixed in 1.x as well (`fix/w-pcapng`). |
+| D21 | `-J` only changes the output of `-c` and `-C`; on its own it is silently ignored and flow files are written. | `-J` without `-C` implies `-c`. |
 
 Differences that only affect level C outputs are not listed.
 
