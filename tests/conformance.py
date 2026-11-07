@@ -69,10 +69,19 @@ def fileobjects(report):
     return sorted(lines)
 
 
+TIME_ATTRS = ("startime", "endtime")
+
+
 def canonical(elem):
     out = {}
     if elem.attrib:
-        out["@"] = dict(elem.attrib)
+        attrs = dict(elem.attrib)
+        for name in TIME_ATTRS:
+            # 1.6.2 drops a zero fraction (#206, SPEC.md D15); compare the instants
+            t = attrs.get(name)
+            if t and t.endswith("Z") and "." not in t:
+                attrs[name] = t[:-1] + ".000000Z"
+        out["@"] = attrs
     text = (elem.text or "").strip()
     if text:
         out["#"] = text

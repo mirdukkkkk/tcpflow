@@ -494,7 +494,7 @@ Each `<fileobject>` (level B):
 ```
 
 - Timestamps are ISO 8601 UTC with microseconds.
-- `mac_*` is present only for Ethernet.
+- `mac_*` is present only for Ethernet, and only if the address is not all zeros.
 - `out_of_order_count` and `violations` are present only if non-zero.
 - `caplen` is present only if it differs from `len`.
 - `family` is the platform's `AF_INET` / `AF_INET6` value, as in 1.6.2.
@@ -569,11 +569,12 @@ As specified for 1.6.2 by #281:
 | D7 | `tcp_cmd` and `http_cmd` run `system(CMD + " " + path)`. | `sh -c 'CMD "$1"' tcpflow PATH`: the path is never parsed by the shell. |
 | D8 | `SYN TO IGNORE!` is printed to stderr for every ignored SYN. | Printed only at debug level ≥ 2. |
 | D9 | Flow file times use `futimes` with the flow start time; on failure a message is printed and processing continues. | Same, without the message unless debug level ≥ 1. |
-| D10 | `DLT_NULL` compares the family with the reading host's `AF_INET`/`AF_INET6` constants, so a macOS or BSD IPv6 capture is not decoded on Linux and vice versa. | The family values of all common platforms are accepted, in either byte order. |
+| D10 | `DLT_NULL` reads only the first byte of the family and compares it with the reading host's `AF_INET`/`AF_INET6`, so a macOS or BSD IPv6 capture, or any big-endian capture, is not decoded. | The family values of all common platforms are accepted, in either byte order. Fixed in 1.x as well (`fix/null-family`). |
 | D11 | `-Fc` replaces `%c` with `%C`, so the name loses the counter. A second flow with the same name makes the search for a free name loop forever. | Fixed in 1.x as well (`fix/fc-counter`); see section 7.2. |
 | D12 | `SIGTERM` and `SIGINT` only stop the packet loop; a process stuck elsewhere ignores them. | `SIGTERM` and `SIGINT` stop processing promptly; open flows are closed and the report is written. |
 | D13 | The MAC addresses in `report.xml` are copied from the first 12 bytes of every frame, so loopback and raw IP captures get garbage `mac_daddr`/`mac_saddr` values. | MAC addresses only for Ethernet. Fixed in 1.x as well (`fix/report-mac`). |
 | D14 | An IPv6 packet with payload length 0 has no TCP data. | The captured length is used, as for IPv4 (section 4.3). |
+| D15 | Report timestamps drop the fraction when the microseconds are 0 (`…:41Z` instead of `…:41.000000Z`, #206). | Always 6 digits of microseconds. |
 
 Differences that only affect level C outputs are not listed.
 
