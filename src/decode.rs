@@ -13,7 +13,10 @@ pub mod dlt {
     pub const PPP_ETHER: i32 = 51;
     pub const RAW: i32 = 101;
     pub const LOOP: i32 = 108;
+    pub const IEEE802_11: i32 = 105;
     pub const LINUX_SLL: i32 = 113;
+    pub const PRISM_HEADER: i32 = 119;
+    pub const IEEE802_11_RADIO: i32 = 127;
 }
 
 pub const TH_FIN: u8 = 0x01;
@@ -80,6 +83,9 @@ pub fn supported(linktype: i32) -> bool {
             | dlt::RAW
             | dlt::LOOP
             | dlt::LINUX_SLL
+            | dlt::IEEE802_11
+            | dlt::PRISM_HEADER
+            | dlt::IEEE802_11_RADIO
     )
 }
 
@@ -192,6 +198,9 @@ fn strip_link(linktype: i32, f: &[u8]) -> Option<(&[u8], LinkInfo)> {
                 }
             }
             &f[at..]
+        }
+        dlt::IEEE802_11 | dlt::PRISM_HEADER | dlt::IEEE802_11_RADIO => {
+            crate::wifi::strip(linktype, f)?
         }
         _ => return None,
     };

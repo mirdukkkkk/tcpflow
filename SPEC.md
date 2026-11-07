@@ -128,9 +128,31 @@ printed at debug level 1. Capture runs until SIGINT, SIGTERM or SIGHUP
 | `PPP` (9) | 4-byte header skipped. |
 | `PPP_ETHER` (51) | PPPoE: 6-byte PPPoE header and 2-byte PPP protocol skipped. |
 | `LINUX_SLL` (113) | 16-byte cooked header; protocol field selects IPv4 or IPv6. |
-| `IEEE802_11` (105), `IEEE802_11_RADIO` (127), `PRISM_HEADER` (119) | 802.11 data frames with LLC/SNAP. Phase 3. |
+| `IEEE802_11` (105), `IEEE802_11_RADIO` (127), `PRISM_HEADER` (119) | 802.11 data frames with LLC/SNAP (section 4.1.1). |
 
 An unsupported link type is a fatal error: `unknown datalink type N`.
+
+#### 4.1.1 802.11
+
+- Radiotap (127): the header is `it_len` bytes. If the flags field is
+  present, its FCS bit says whether the frame ends in an FCS, and its
+  DATAPAD bit pads the 802.11 header to a multiple of 4 bytes (D30). A
+  frame with the bad-FCS flag is ignored.
+- Prism (119): a 144-byte header.
+- Without radiotap flags (105, 119, or radiotap without the field), the
+  last 4 bytes are an FCS if they are the CRC-32 of the rest of the
+  frame. An FCS is removed; a frame whose FCS is wrong is ignored (D29).
+- Only data frames are decoded. Subtypes without data (Null, QoS Null,
+  CF-only), protected (encrypted) frames and A-MSDUs are ignored.
+- The header is 24 bytes, plus 6 with both to-DS and from-DS (a fourth
+  address), plus 2 for QoS subtypes, plus 4 for HT control in a QoS frame
+  with the order bit (D30).
+- The header is followed by LLC/SNAP `AA AA 03`, OUI `00 00 00` or
+  `00 00 F8`, and EtherType 0x0800 or 0x86dd. Anything else is ignored.
+- MAC addresses are not reported for 802.11 (section 14).
+
+`tests/make-wifi.py` turns an Ethernet capture into the three 802.11
+test captures.
 
 ### 4.2 IPv4
 
@@ -651,6 +673,8 @@ Based on #281, with the problems found in its review fixed (D22–D24):
 | D26 | `-w` with live capture fails: "currently the -w option requires the -r option". | Allowed; the header has the device's link type (section 12). |
 | D27 | `-i` with `-r` or `-R` is silently ignored and the files are read. | An error. |
 | D28 | An IPv6 packet whose next header is not TCP is not processed, so TCP after an extension header is lost (it goes to `-w`). | Extension headers are followed (section 4.3). |
+| D29 | The last 4 bytes of every 802.11 frame are taken as the FCS. With the default `check_fcs=1`, a frame without a valid FCS is dropped, so a capture without FCS (as many drivers deliver it) yields nothing; with `check_fcs=0` every packet loses 4 bytes. `DLT_IEEE802_11` (105) is parsed as radiotap and yields nothing. | The FCS is detected (section 4.1.1). 105 fixed in 1.x as well (`fix/ieee80211-dlt`). |
+| D30 | QoS is recognised only for subtype 8; HT control and the radiotap DATAPAD flag are not handled, so the LLC header is looked for at the wrong place. | Section 4.1.1. |
 
 Differences that only affect level C outputs are not listed.
 

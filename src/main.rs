@@ -13,6 +13,7 @@ mod report;
 mod signals;
 mod split;
 mod stream;
+mod wifi;
 
 use std::io;
 use std::process::ExitCode;
