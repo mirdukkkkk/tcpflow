@@ -97,11 +97,12 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
     drop(dir.handle);
 
     let mut report = if cfg.enable_report {
-        let path = cfg
-            .report_path
-            .clone()
-            .unwrap_or_else(|| format!("{outdir}/report.xml"));
-        let file = privs::create_file(&path).map_err(|e| format!("{path}: {e}"))?;
+        // a link is followed only for a path the user named (SPEC.md 16)
+        let (path, named) = match &cfg.report_path {
+            Some(p) => (p.clone(), true),
+            None => (format!("{outdir}/report.xml"), false),
+        };
+        let file = privs::create_file(&path, named).map_err(|e| format!("{path}: {e}"))?;
         late.hand_over(&file)?;
         Some(
             Report::create(file.handle, &cfg.command_line, cfg.tdelta)
@@ -215,7 +216,7 @@ impl Late {
         cap: &pcap::Capture<T>,
     ) -> Result<(), String> {
         if let (None, Some(path)) = (&self.unprocessed, &cfg.unprocessed) {
-            let file = privs::create_file(path).map_err(|e| format!("{path}: {e}"))?;
+            let file = privs::create_file(path, true).map_err(|e| format!("{path}: {e}"))?;
             self.hand_over(&file)?;
             self.unprocessed = Some(pcapfile::Unprocessed::create(path, file.handle, cap)?);
         }

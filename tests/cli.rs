@@ -78,3 +78,33 @@ fn unwritable_outdir_names_the_file() {
     let prefix = format!("tcpflow: cannot create {}/", dir.display());
     assert!(err.starts_with(&prefix), "{err}");
 }
+
+#[test]
+fn links_in_the_output_directory_are_not_followed() {
+    let dir = std::env::temp_dir().join(format!("tcpflow-test-link-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("out")).unwrap();
+    std::fs::write(dir.join("victim"), b"keep me").unwrap();
+    std::os::unix::fs::symlink(dir.join("victim"), dir.join("out/report.xml")).unwrap();
+    let pcap = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/test1.pcap");
+    let out = tcpflow(&["-o", dir.join("out").to_str().unwrap(), "-r", pcap]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(std::fs::read(dir.join("victim")).unwrap(), b"keep me");
+    // a report path the user names may be a link
+    let named = dir.join("out/report.xml");
+    let out = tcpflow(&[
+        "-X",
+        named.to_str().unwrap(),
+        "-o",
+        dir.join("out").to_str().unwrap(),
+        "-r",
+        pcap,
+    ]);
+    assert!(out.status.success());
+    assert!(
+        std::fs::read(dir.join("victim"))
+            .unwrap()
+            .starts_with(b"<?xml")
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}

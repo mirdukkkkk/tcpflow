@@ -672,6 +672,12 @@ Based on #281, with the problems found in its review fixed (D22–D24):
   the chroot with ordinary paths; later inputs are opened inside it;
 - any failure is fatal. tcpflow never continues with privileges it was
   asked to drop.
+- whether or not `-U` is given, tcpflow never follows a symbolic link to
+  an existing file in the output directory: the default report, a flow
+  file or `.findx` index reopened after the open file limit, a `-K` file
+  and an HTTP body file are opened with `O_NOFOLLOW` (D36). New flow
+  files are created exclusively. A path the user names with `-X` or `-w`
+  may be a link, such as `/dev/null`.
 
 ## 17. Intentional differences from 1.6.2
 
@@ -712,6 +718,7 @@ Based on #281, with the problems found in its review fixed (D22–D24):
 | D33 | tcpflow exits without waiting for running commands. The limit of 10 counts any finished child, of either kind. | tcpflow waits for its commands; each kind has its own limit. |
 | D34 | `-L` always fails with `(null): attempt to create lock pthreads not present`, because `configure` never defines `HAVE_PTHREAD_H`; the semaphore calls themselves are behind `HAVE_PTHREAD`, which is never defined either. A failing `sem_open` is not checked. | Section 9.4. Fixed in 1.x as well (`fix/semlock`). |
 | D35 | With `-a` or `-e netviz`, and when built with cairo, `report.pdf` is written: a one-page summary of the capture (time histogram, top addresses and ports). | No `report.pdf` (section 18). |
+| D36 | Output files that already exist are opened through symbolic links: someone who can write to the output directory can plant `report.xml` or a `-K` file as a link and make tcpflow (often root) truncate and overwrite another file. | Links in the output directory are not followed (section 16). |
 
 Differences that only affect level C outputs are not listed.
 

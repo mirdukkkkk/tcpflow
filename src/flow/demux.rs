@@ -13,6 +13,7 @@ use crate::flow::stream::{self, Seen};
 use crate::log;
 use crate::output::console;
 use crate::post;
+use crate::sys::privs::output_file;
 
 /// Packet timestamp: seconds and microseconds since the Unix epoch.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -482,7 +483,7 @@ impl<'a> Demux<'a> {
                 drop(index);
                 let path = index_path(f.path.as_deref().unwrap());
                 stream::shift_index(&path, insert)?;
-                f.index = Some(File::options().append(true).open(&path)?);
+                f.index = Some(output_file().append(true).open(&path)?);
             }
         } else if offset != pos {
             if delta == -1 && length == 1 {
@@ -530,11 +531,9 @@ impl<'a> Demux<'a> {
             let f = &self.flows[key];
             let is_new = f.path.is_none();
             let result = match &f.path {
-                Some(path) => File::options()
+                Some(path) => output_file()
                     .read(true)
                     .write(true)
-                    .create(true)
-                    .truncate(false)
                     .open(path)
                     .map(|file| (path.clone(), file)),
                 None => self.create_file(f),
@@ -542,7 +541,7 @@ impl<'a> Demux<'a> {
             match result {
                 Ok((path, file)) => {
                     let index = if self.opt.index {
-                        let mut o = File::options();
+                        let mut o = output_file();
                         o.create(true);
                         if is_new {
                             o.write(true).truncate(true);

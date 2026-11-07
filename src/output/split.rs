@@ -9,6 +9,7 @@ use crate::capture::decode::Ports;
 use crate::flow::demux::{FlowKey, Timestamp, default_max_open};
 use crate::flow::naming::{NameInfo, Template};
 use crate::output::pcapfile::{Record, write_header, write_record};
+use crate::sys::privs::output_file;
 
 /// The snaplen written in every per-flow pcap header.
 const SNAPLEN: u32 = 65535;
@@ -81,7 +82,12 @@ impl Splitter {
                 }
             }
             self.make_room()?;
-            let mut file = BufWriter::new(File::create(&path)?);
+            let file = output_file()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&path)?;
+            let mut file = BufWriter::new(file);
             write_header(&mut file, self.linktype, SNAPLEN)?;
             self.open += 1;
             self.outputs.insert(
@@ -95,7 +101,7 @@ impl Splitter {
         } else if self.outputs[&key].file.is_none() {
             self.make_room()?;
             let path = &self.outputs[&key].path;
-            let file = File::options().append(true).open(path)?;
+            let file = output_file().append(true).open(path)?;
             self.outputs.get_mut(&key).unwrap().file = Some(BufWriter::new(file));
             self.open += 1;
         }

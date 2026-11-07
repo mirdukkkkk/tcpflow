@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::{self, Write};
 
 use crate::post::mime;
+use crate::sys::privs::output_file;
 
 /// Flows shorter than this are not worth parsing.
 const MIN_SIZE: usize = 80;
@@ -300,7 +301,11 @@ enum Sink {
 
 impl Body {
     fn create(path: &str, decompress: bool) -> io::Result<Body> {
-        let file = File::create(path)?;
+        let file = output_file()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)?;
         Ok(Body {
             path: path.to_string(),
             out: Some(if decompress {
