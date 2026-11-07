@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const TCPFLOW: &str = env!("CARGO_BIN_EXE_tcpflow");
-const JPEGS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/samplePcaps/jpegs.cap");
+const JPEGS: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/captures/http/jpegs.pcap"
+);
 
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("tcpflow-test-{name}-{}", std::process::id()));

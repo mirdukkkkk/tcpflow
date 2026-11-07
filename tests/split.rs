@@ -4,7 +4,10 @@ use std::path::Path;
 use std::process::Command;
 
 fn run(dir: &Path, out: &str, extra: &[&str]) {
-    let pcap = concat!(env!("CARGO_MANIFEST_DIR"), "/samplePcaps/jpegs.cap");
+    let pcap = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/captures/http/jpegs.pcap"
+    );
     let status = Command::new(env!("CARGO_BIN_EXE_tcpflow"))
         .args(["-K", "-o", out, "-r", pcap])
         .args(extra)
@@ -47,7 +50,10 @@ fn split_files_survive_running_out_of_descriptors() {
         std::env::temp_dir().join(format!("tcpflow-test-split-emfile-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let jpegs = concat!(env!("CARGO_MANIFEST_DIR"), "/samplePcaps/jpegs.cap");
+    let jpegs = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/captures/http/jpegs.pcap"
+    );
     let count = |out: &str| -> usize {
         std::fs::read_dir(dir.join(out))
             .unwrap()
@@ -87,7 +93,10 @@ fn flows_with_the_same_file_name_share_the_file() {
         std::env::temp_dir().join(format!("tcpflow-test-split-shared-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let pcap = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/test1.pcap");
+    let pcap = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/captures/http/two-connections.pcap"
+    );
     let packets = |out: &str| -> usize {
         std::fs::read_dir(dir.join(out))
             .unwrap()

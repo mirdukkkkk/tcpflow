@@ -30,7 +30,6 @@
               ./Cargo.lock
               ./src
               ./tests
-              ./samplePcaps
             ];
           };
           cargoLock.lockFile = ./Cargo.lock;
@@ -63,7 +62,7 @@
               }
               ''
                 cp -r ${tcpflow.src} src && chmod -R u+w src && cd src
-                python3 -I tests/conformance.py check ${tcpflow}/bin/tcpflow
+                python3 -I tests/scripts/conformance.py check ${tcpflow}/bin/tcpflow
                 touch $out
               '';
         }

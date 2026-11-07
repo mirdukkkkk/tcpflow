@@ -4,7 +4,10 @@ mod common;
 
 use common::*;
 
-const JPEGS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/samplePcaps/jpegs.cap");
+const JPEGS: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/captures/http/jpegs.pcap"
+);
 
 fn bodies(out: &std::path::Path) -> Vec<(String, u64)> {
     let mut v: Vec<_> = std::fs::read_dir(out)
@@ -64,5 +67,27 @@ fn a_body_name_that_is_too_long_does_not_stop_the_run() {
     let report = std::fs::read_to_string(dir.join("out/report.xml")).unwrap();
     assert!(report.contains("<total_flows>"));
     assert!(bodies(&dir.join("out")).is_empty());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn extracted_bodies_match_the_expected_files() {
+    let dir = scratch("image-bodies");
+    let image = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/captures/http/image");
+    let pcap = format!("{image}/image.pcapng");
+    assert!(
+        run(&dir, &["-a", "-o", "out", "-r", &pcap])
+            .status
+            .success()
+    );
+    let flow = "127.000.000.001.00080-127.000.000.001.52054";
+    for (body, expected) in [("001.html", "body-001.html"), ("002.jpg", "body-002.jpg")] {
+        let got = std::fs::read(dir.join(format!("out/{flow}-HTTPBODY-{body}"))).unwrap();
+        assert_eq!(
+            got,
+            std::fs::read(format!("{image}/{expected}")).unwrap(),
+            "{body}"
+        );
+    }
     std::fs::remove_dir_all(&dir).unwrap();
 }

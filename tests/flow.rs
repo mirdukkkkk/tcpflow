@@ -132,7 +132,10 @@ fn a_retransmission_that_crosses_the_gap_limit_is_ignored() {
 #[test]
 fn index_files_survive_running_out_of_descriptors() {
     let dir = scratch("index-emfile");
-    let jpegs = concat!(env!("CARGO_MANIFEST_DIR"), "/samplePcaps/jpegs.cap");
+    let jpegs = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/captures/http/jpegs.pcap"
+    );
     let run = |out: &str, limit: &str| {
         std::process::Command::new("sh")
             .arg("-c")

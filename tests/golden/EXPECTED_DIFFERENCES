@@ -5,26 +5,26 @@
 #
 # Example:
 #   tests/vlan-pcp.pcap:default D1 VLAN ID without priority bits
-tests/bug5.pcap:all D18 a flow identical to an earlier one was not post-processed
-samplePcaps/jpegs.cap:all D18 a flow identical to an earlier one was not post-processed
-tests/bug8.pcap:json D4 1.x takes IPv6 addresses and ports from the file name
-tests/local2.pcap:json D4 1.x takes IPv6 addresses and ports from the file name
-tests/local.pcap:json D4 1.x takes IPv6 addresses and ports from the file name
-tests/test3.pcap:json D4 1.x takes IPv6 addresses and ports from the file name
-tests/test4.pcap:json D4 1.x takes IPv6 addresses and ports from the file name
-tests/test1-out-of-order.pcap:default D37 the shifted flow closes on its FIN and its filesize includes the shift
-tests/test1-out-of-order.pcap:all D37 the shifted flow closes on its FIN and its filesize includes the shift
-tests/test1-out-of-order.pcap:index D37 the shifted flow closes on its FIN and its filesize includes the shift
-tests/test1-out-of-order.pcap:bins D37 the shifted flow closes on its FIN and its filesize includes the shift
-tests/test1-out-of-order.pcap:template D37 the shifted flow closes on its FIN and its filesize includes the shift
-tests/test1-out-of-order.pcap:limit D37 the shifted flow closes on its FIN and its filesize includes the shift
-tests/test1-out-of-order.pcap:unprocessed D37 the shifted flow closes on its FIN and its filesize includes the shift
-tests/test5-lines-randomized2.pcap:default D37 the shifted flow closes on its FIN and its filesize includes the shift
-tests/test5-lines-randomized2.pcap:all D37 the shifted flow closes on its FIN and its filesize includes the shift
-tests/test5-lines-randomized2.pcap:index D37 the shifted flow closes on its FIN and its filesize includes the shift
-tests/test5-lines-randomized2.pcap:bins D37 the shifted flow closes on its FIN and its filesize includes the shift
-tests/test5-lines-randomized2.pcap:template D37 the shifted flow closes on its FIN and its filesize includes the shift
-tests/test5-lines-randomized2.pcap:limit D37 the shifted flow closes on its FIN and its filesize includes the shift
-tests/test5-lines-randomized2.pcap:unprocessed D37 the shifted flow closes on its FIN and its filesize includes the shift
-tests/bug8.pcap:pcap D40 the -K file header has the canonical LINKTYPE_RAW (101) instead of the DLT value 12
-tests/test4.pcap:pcap D40 the -K file header has the canonical LINKTYPE_RAW (101) instead of the DLT value 12
+tests/captures/edge/rst.pcap:all D18 a flow identical to an earlier one was not post-processed
+tests/captures/http/jpegs.pcap:all D18 a flow identical to an earlier one was not post-processed
+tests/captures/ipv6/raw-ip-bad-timestamps.pcap:json D4 1.x takes IPv6 addresses and ports from the file name
+tests/captures/link/null-loopback-2.pcap:json D4 1.x takes IPv6 addresses and ports from the file name
+tests/captures/link/null-loopback.pcap:json D4 1.x takes IPv6 addresses and ports from the file name
+tests/captures/ipv6/http.pcap:json D4 1.x takes IPv6 addresses and ports from the file name
+tests/captures/ipv6/raw-ip-http.pcap:json D4 1.x takes IPv6 addresses and ports from the file name
+tests/captures/http/out-of-order.pcapng:default D37 the shifted flow closes on its FIN and its filesize includes the shift
+tests/captures/http/out-of-order.pcapng:all D37 the shifted flow closes on its FIN and its filesize includes the shift
+tests/captures/http/out-of-order.pcapng:index D37 the shifted flow closes on its FIN and its filesize includes the shift
+tests/captures/http/out-of-order.pcapng:bins D37 the shifted flow closes on its FIN and its filesize includes the shift
+tests/captures/http/out-of-order.pcapng:template D37 the shifted flow closes on its FIN and its filesize includes the shift
+tests/captures/http/out-of-order.pcapng:limit D37 the shifted flow closes on its FIN and its filesize includes the shift
+tests/captures/http/out-of-order.pcapng:unprocessed D37 the shifted flow closes on its FIN and its filesize includes the shift
+tests/captures/http/text-lines-before-start.pcapng:default D37 the shifted flow closes on its FIN and its filesize includes the shift
+tests/captures/http/text-lines-before-start.pcapng:all D37 the shifted flow closes on its FIN and its filesize includes the shift
+tests/captures/http/text-lines-before-start.pcapng:index D37 the shifted flow closes on its FIN and its filesize includes the shift
+tests/captures/http/text-lines-before-start.pcapng:bins D37 the shifted flow closes on its FIN and its filesize includes the shift
+tests/captures/http/text-lines-before-start.pcapng:template D37 the shifted flow closes on its FIN and its filesize includes the shift
+tests/captures/http/text-lines-before-start.pcapng:limit D37 the shifted flow closes on its FIN and its filesize includes the shift
+tests/captures/http/text-lines-before-start.pcapng:unprocessed D37 the shifted flow closes on its FIN and its filesize includes the shift
+tests/captures/ipv6/raw-ip-bad-timestamps.pcap:pcap D40 the -K file header has the canonical LINKTYPE_RAW (101) instead of the DLT value 12
+tests/captures/ipv6/raw-ip-http.pcap:pcap D40 the -K file header has the canonical LINKTYPE_RAW (101) instead of the DLT value 12

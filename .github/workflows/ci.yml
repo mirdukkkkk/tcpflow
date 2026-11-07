@@ -36,7 +36,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: sudo apt-get install -y libpcap-dev
       - run: cargo build --release
-      - run: python3 -I tests/conformance.py check target/release/tcpflow
+      - run: python3 -I tests/scripts/conformance.py check target/release/tcpflow
 
   root:
     runs-on: ubuntu-latest
@@ -46,4 +46,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: sudo apt-get install -y libpcap-dev
       - run: cargo build --release
-      - run: sudo sh tests/privs-root.sh
+      - run: sudo sh tests/scripts/privs-root.sh

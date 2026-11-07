@@ -3,7 +3,10 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const UDP: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/udp.pcap");
+const UDP: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/captures/edge/udp-only.pcap"
+);
 const HEADER: usize = 24;
 
 fn scratch(name: &str) -> PathBuf {

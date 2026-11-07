@@ -10,7 +10,7 @@ branch.
 
 - [SPEC.md](SPEC.md) specifies the behaviour, including the intentional
   differences from 1.6.2.
-- `tests/conformance.py check <tcpflow>` compares a build against the
+- `tests/scripts/conformance.py check <tcpflow>` compares a build against the
   golden output of tcpflow 1.6.2 in `tests/golden/`.
 
 ## Building
@@ -18,7 +18,7 @@ branch.
 ```
 cargo build --release
 cargo test
-python3 tests/conformance.py check target/release/tcpflow
+python3 tests/scripts/conformance.py check target/release/tcpflow
 ```
 
 ## License

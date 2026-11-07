@@ -37,7 +37,10 @@ fn invalid_option() {
 fn json_alone_implies_console_output() {
     let dir = std::env::temp_dir().join(format!("tcpflow-test-json-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let pcap = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/test1.pcap");
+    let pcap = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/captures/http/two-connections.pcap"
+    );
     let out = tcpflow(&["-J", "-o", dir.to_str().unwrap(), "-r", pcap]);
     assert!(out.status.success());
     assert_eq!(out.stdout, tcpflow(&["-c", "-J", "-r", pcap]).stdout);
@@ -49,7 +52,10 @@ fn json_alone_implies_console_output() {
 
 #[test]
 fn live_capture_does_not_mix_with_files() {
-    let pcap = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/test1.pcap");
+    let pcap = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/captures/http/two-connections.pcap"
+    );
     for args in [["-i", "lo", "-r", pcap], ["-i", "lo", "-R", pcap]] {
         let out = tcpflow(&args);
         assert_eq!(out.status.code(), Some(1));
@@ -74,7 +80,10 @@ fn unwritable_outdir_names_the_file() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap();
-    let pcap = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/test1.pcap");
+    let pcap = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/captures/http/two-connections.pcap"
+    );
     let out = tcpflow(&["-X", "/dev/null", "-o", dir.to_str().unwrap(), "-r", pcap]);
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
     std::fs::remove_dir_all(&dir).unwrap();
@@ -91,7 +100,10 @@ fn links_in_the_output_directory_are_not_followed() {
     std::fs::create_dir_all(dir.join("out")).unwrap();
     std::fs::write(dir.join("victim"), b"keep me").unwrap();
     std::os::unix::fs::symlink(dir.join("victim"), dir.join("out/report.xml")).unwrap();
-    let pcap = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/test1.pcap");
+    let pcap = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/captures/http/two-connections.pcap"
+    );
     let out = tcpflow(&["-o", dir.join("out").to_str().unwrap(), "-r", pcap]);
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(std::fs::read(dir.join("victim")).unwrap(), b"keep me");
@@ -118,7 +130,10 @@ fn links_in_the_output_directory_are_not_followed() {
 fn console_output_creates_no_directory() {
     let dir = std::env::temp_dir().join(format!("tcpflow-test-c-dir-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let pcap = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/test1.pcap");
+    let pcap = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/captures/http/two-connections.pcap"
+    );
     assert!(
         tcpflow(&["-c", "-o", dir.to_str().unwrap(), "-r", pcap])
             .status

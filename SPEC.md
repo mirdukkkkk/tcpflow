@@ -159,7 +159,7 @@ An unsupported link type is a fatal error: `unknown datalink type N`.
   `00 00 F8`, and EtherType 0x0800 or 0x86dd. Anything else is ignored.
 - MAC addresses are not reported for 802.11 (section 14).
 
-`tests/make-wifi.py` turns an Ethernet capture into the three 802.11
+`tests/scripts/make-wifi.py` turns an Ethernet capture into the three 802.11
 test captures.
 
 ### 4.2 IPv4
@@ -642,8 +642,9 @@ Each `<fileobject>` (level B):
 
 ## 15. Conformance tests
 
-`tests/golden/` holds the output of the reference binary for every pcap in
-`tests/` and `samplePcaps/`, for these runs:
+`tests/golden/` holds the output of the reference binary for every capture
+under `tests/captures/` (listed in `tests/captures/README.md`), for these
+runs:
 
 | Name | Options |
 |---|---|
@@ -668,14 +669,14 @@ For each run the golden data contains:
 - stdout for the console runs (level A);
 - file modification times.
 
-`tests/conformance.py check <tcpflow>` runs every case, compares the
+`tests/scripts/conformance.py check <tcpflow>` runs every case, compares the
 results and prints `N of M cases match`. A case that differs only
 because of an intentional difference is recorded in
 `tests/golden/EXPECTED_DIFFERENCES` with the reason.
 
 The golden data is not taken on trust:
 
-- `tests/conformance.py generate <reference>` refuses to write golden data
+- `tests/scripts/conformance.py generate <reference>` refuses to write golden data
   if any case hangs (30 seconds) or crashes. A hang or a crash is always a
   bug, in the reference or in 2.0, never expected behaviour;
 - when 2.0 differs from the golden data, the difference is investigated

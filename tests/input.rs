@@ -5,7 +5,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-const PCAP: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/test1.pcap");
+const PCAP: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/captures/http/two-connections.pcap"
+);
 
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("tcpflow-test-{name}-{}", std::process::id()));

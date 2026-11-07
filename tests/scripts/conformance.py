@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Conformance tests for tcpflow (see SPEC.md, section 15).
 
-    conformance.py generate <reference tcpflow>   write tests/golden/
-    conformance.py check <tcpflow> [case ...]     compare against tests/golden/
+    tests/scripts/conformance.py generate <reference tcpflow>   write tests/golden/
+    tests/scripts/conformance.py check <tcpflow> [case ...]     compare against tests/golden/
 """
 
 import hashlib
@@ -15,7 +15,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 
-TESTS = os.path.dirname(os.path.abspath(__file__))
+TESTS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(TESTS)
 GOLDEN = os.path.join(TESTS, "golden")
 EXPECTED = os.path.join(GOLDEN, "EXPECTED_DIFFERENCES")
@@ -40,12 +40,13 @@ NOT_COMPARED = {"report.xml", "report.pdf"}
 
 
 def pcaps():
+    """Every capture under tests/captures, as a path relative to the repository."""
     found = []
-    for d in ("tests", "tests/test8", "samplePcaps"):
-        for name in sorted(os.listdir(os.path.join(ROOT, d))):
-            if name.endswith((".pcap", ".cap")):
-                found.append(os.path.join(d, name))
-    return found
+    for d, _, names in os.walk(os.path.join(TESTS, "captures")):
+        for name in names:
+            if name.endswith((".pcap", ".pcapng")):
+                found.append(os.path.relpath(os.path.join(d, name), ROOT))
+    return sorted(found)
 
 
 def sha256(path):

@@ -1,18 +1,19 @@
 #!/bin/sh
 # Root checks for -U and -z (SPEC.md 16). Build first, then:
 #
-#   sudo sh tests/privs-root.sh [tcpflow binary]
+#   sudo sh tests/scripts/privs-root.sh [tcpflow binary]
 #
 # Uses the numeric ids 900:990, which need not exist, and the user nobody.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 B=$(realpath "${1:-target/release/tcpflow}")
-SRC=$PWD/tests
+SRC=$PWD/tests/captures
 [ "$(id -u)" = 0 ] || { echo "run as root"; exit 1; }
 umask 077 # the checks must not depend on umask
 W=$(mktemp -d)
 chmod 755 $W
-cp $SRC/test1.pcap $SRC/udp.pcap $W/ && chmod 644 $W/*.pcap
+cp $SRC/http/two-connections.pcap $W/test1.pcap && cp $SRC/edge/udp-only.pcap $W/udp.pcap
+chmod 644 $W/*.pcap
 FAILS=0
 ok() { echo "PASS $*"; }
 bad() { echo "FAIL $*"; FAILS=$((FAILS + 1)); }

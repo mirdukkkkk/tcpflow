@@ -5,7 +5,10 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 const TCPFLOW: &str = env!("CARGO_BIN_EXE_tcpflow");
-const PCAP: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/test1.pcap");
+const PCAP: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/captures/http/two-connections.pcap"
+);
 
 #[test]
 fn console_output_waits_for_the_semaphore() {

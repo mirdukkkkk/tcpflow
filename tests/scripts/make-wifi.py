@@ -1,6 +1,6 @@
 """Make the 802.11 test captures from an Ethernet capture (SPEC.md 4.1).
 
-    python3 -I tests/make-wifi.py tests/test1.pcap tests
+    python3 -I tests/scripts/make-wifi.py tests/captures/http/two-connections.pcap tests/captures/link
 
 Every frame becomes an 802.11 data frame with LLC/SNAP and a valid FCS:
 
