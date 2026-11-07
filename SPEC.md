@@ -565,18 +565,32 @@ The golden data is not taken on trust:
 
 ## 16. Privilege dropping (`-U`, `-z`)
 
-As specified for 1.6.2 by #281:
+Based on #281, with the problems found in its review fixed (D22–D24):
 
 - `spec` is `user`, `uid`, `user:group`, `uid:gid` or `:group`. Each part
-  is looked up as a name first, then parsed as a number;
+  is looked up as a name first, then parsed as a decimal number
+  (`4294967295`, which is `(uid_t)-1`, is rejected). A user gives its
+  primary group unless a group is named. A numeric uid without a passwd
+  entry needs an explicit group (D24). `:group` keeps the current uid.
+  An invalid spec is reported as `-U <spec>: ...` before anything is
+  created, with exit status 1;
 - privileges are dropped once, right after the first input or the
-  capture device is opened. Inputs opened later must be readable by the
-  new user;
-- before dropping, the output directory (if tcpflow created it), the
-  `-w` file and the report are handed to the new ids with `lchown`;
-- supplementary groups are set with `initgroups` for a named user, and
-  cleared otherwise;
-- `-z` requires the target uid to be non-zero;
+  capture device is opened and the `-w` file is created. Inputs opened
+  later must be readable by the new user;
+- before dropping, the output directory, the report and the `-w` file
+  are handed to the new ids with `fchown` on the descriptors tcpflow
+  holds, never by path (D22), and only if tcpflow created them: an
+  existing file, a device such as `/dev/null` or the target of a symlink
+  is never given away (D23). It is still written through the descriptor
+  opened before the drop;
+- the order is `fchown`, `chroot` and `chdir("/")`, supplementary
+  groups (`initgroups` for a user with a passwd entry, otherwise only
+  the target group), `setgid`, `setuid`. After a drop to a non-root uid,
+  `setuid(0)` and `seteuid(0)` must fail;
+- `-z dir` requires `-U` with a non-root uid. The output directory
+  `-o O` is `dir/O` before and after the chroot, and the default report
+  is created there too. `-X`, `-w` and the first input are opened before
+  the chroot with ordinary paths; later inputs are opened inside it;
 - any failure is fatal. tcpflow never continues with privileges it was
   asked to drop.
 
@@ -605,6 +619,10 @@ As specified for 1.6.2 by #281:
 | D19 | `-K` files of Ethernet captures have link type 6 (Token Ring), so tcpdump and Wireshark decode every packet wrongly. | The link type of the input. Fixed in 1.x as well (`fix/k-linktype`). |
 | D20 | `-w` copies the first 24 bytes of the first `-r` file as the pcap header and aborts if they are not a little-endian pcap header, so a pcapng, big-endian or compressed input makes tcpflow crash. | libpcap writes the header (section 12). Fixed in 1.x as well (`fix/w-pcapng`). |
 | D21 | `-J` only changes the output of `-c` and `-C`; on its own it is silently ignored and flow files are written. | `-J` without `-C` implies `-c`. |
+| D22 | (#281) Ownership is handed over with `lchown` by path, after the output directory already belongs to the new user, so a process of that user can swap the directory for a symlink and make root change the owner of other files. | `fchown` on descriptors (section 16). |
+| D23 | (#281) The report and the `-w` file are handed over even if they existed or are devices: `-U nobody -w /dev/null` gives `/dev/null` to `nobody`. | Only outputs tcpflow created are handed over. |
+| D24 | (#281) A numeric uid without a passwd entry keeps gid 0. | An explicit group is required. |
+| D25 | (#281) With `-z`, the output directory and the report are created relative to the working directory before the chroot, but flow files relative to the chroot. | `-o` is inside the chroot for both (section 16). |
 
 Differences that only affect level C outputs are not listed.
 

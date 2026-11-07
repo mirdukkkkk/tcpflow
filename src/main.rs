@@ -8,6 +8,7 @@ mod mime;
 mod naming;
 mod pcapfile;
 mod post;
+mod privs;
 mod report;
 mod signals;
 mod split;
@@ -76,20 +77,39 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
         ));
     }
 
-    match std::fs::metadata(&cfg.outdir) {
-        Ok(m) if !m.is_dir() => return Err(format!("outdir is not a directory: {}", cfg.outdir)),
-        Ok(_) => {}
-        Err(_) => std::fs::create_dir(&cfg.outdir)
-            .map_err(|e| format!("cannot create {}: {e}", cfg.outdir))?,
-    }
+    let mut late = Late {
+        unprocessed: None,
+        dropper: match (&cfg.relinquish, &cfg.chroot) {
+            (Some(spec), chroot) => {
+                Some(privs::Dropper::new(privs::parse(spec)?, chroot.as_deref())?)
+            }
+            (None, Some(_)) => return Err("-z requires -U".into()),
+            (None, None) => None,
+        },
+    };
+
+    // with -z, the output directory is inside the chroot before the drop as well
+    let outdir = match &cfg.chroot {
+        Some(root) => format!(
+            "{}/{}",
+            root.trim_end_matches('/'),
+            cfg.outdir.trim_start_matches('/')
+        ),
+        None => cfg.outdir.clone(),
+    };
+    let dir = privs::create_dir(&outdir)?;
+    late.hand_over(&dir)?;
+    drop(dir.handle);
 
     let mut report = if cfg.enable_report {
         let path = cfg
             .report_path
             .clone()
-            .unwrap_or_else(|| format!("{}/report.xml", cfg.outdir));
+            .unwrap_or_else(|| format!("{outdir}/report.xml"));
+        let file = privs::create_file(&path).map_err(|e| format!("{path}: {e}"))?;
+        late.hand_over(&file)?;
         Some(
-            Report::create(&path, &cfg.command_line, cfg.tdelta)
+            Report::create(file.handle, &cfg.command_line, cfg.tdelta)
                 .map_err(|e| format!("{path}: {e}"))?,
         )
     } else {
@@ -128,7 +148,6 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
     let mut splitter = cfg
         .split
         .then(|| split::Splitter::new(&cfg.outdir, demux.template().clone(), cfg.max_open));
-    let mut unprocessed = None;
     let mut ok = true;
     for (paths, new_flows) in [(&cfg.rfiles, true), (&cfg.big_r_files, false)] {
         demux.start_new_flows = new_flows;
@@ -138,14 +157,14 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
                     Some(s) => s,
                     None => &mut demux,
                 };
-                ok &= read_file(engine, cfg, path, &mut unprocessed)?;
+                ok &= read_file(engine, cfg, path, &mut late)?;
             }
         }
     }
     if let Some(s) = splitter {
         s.finish().map_err(|e| e.to_string())?;
     }
-    if let Some(w) = unprocessed {
+    if let Some(w) = late.unprocessed {
         w.finish()?;
     }
     demux.close_all().map_err(|e| e.to_string())?;
@@ -164,6 +183,38 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
     } else {
         ExitCode::FAILURE
     })
+}
+
+/// What is set up when the first input is open: the `-w` file, then the privilege
+/// drop (SPEC.md 12, 16).
+struct Late {
+    unprocessed: Option<pcapfile::Unprocessed>,
+    dropper: Option<privs::Dropper>,
+}
+
+impl Late {
+    fn hand_over<T: std::os::fd::AsFd>(&mut self, out: &privs::Output<T>) -> Result<(), String> {
+        match self.dropper.as_mut() {
+            Some(d) => d.hand_over(out),
+            None => Ok(()),
+        }
+    }
+
+    fn first_input_open(
+        &mut self,
+        cfg: &Config,
+        cap: &pcap::Capture<pcap::Offline>,
+    ) -> Result<(), String> {
+        if let (None, Some(path)) = (&self.unprocessed, &cfg.unprocessed) {
+            let file = privs::create_file(path).map_err(|e| format!("{path}: {e}"))?;
+            self.hand_over(&file)?;
+            self.unprocessed = Some(pcapfile::Unprocessed::create(path, file.handle, cap)?);
+        }
+        match self.dropper.as_mut() {
+            Some(d) => d.drop_now(),
+            None => Ok(()),
+        }
+    }
 }
 
 /// What became of a captured frame.
@@ -245,19 +296,15 @@ impl Engine for split::Splitter {
 }
 
 /// Process one capture file. Returns false if it could not be read to the end.
-/// `unprocessed` is the `-w` file, created with the link type and snaplen of the first
-/// input (SPEC.md 12).
 fn read_file(
     engine: &mut dyn Engine,
     cfg: &Config,
     path: &str,
-    unprocessed: &mut Option<pcapfile::Unprocessed>,
+    late: &mut Late,
 ) -> Result<bool, String> {
     let mut input = input::open(path)?;
-    if let (None, Some(w)) = (&unprocessed, &cfg.unprocessed) {
-        *unprocessed = Some(pcapfile::Unprocessed::create(w, &input.capture)?);
-    }
-    let complete = read_packets(engine, cfg, path, &mut input.capture, unprocessed)?;
+    late.first_input_open(cfg, &input.capture)?;
+    let complete = read_packets(engine, cfg, path, &mut input.capture, &mut late.unprocessed)?;
     match input.finish(path) {
         Ok(()) => Ok(complete),
         Err(e) => {

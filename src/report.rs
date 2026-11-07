@@ -19,8 +19,8 @@ pub struct Summary {
 }
 
 impl Report {
-    pub fn create(path: &str, command_line: &str, tdelta: i64) -> io::Result<Report> {
-        let mut out = BufWriter::new(File::create(path)?);
+    pub fn create(file: File, command_line: &str, tdelta: i64) -> io::Result<Report> {
+        let mut out = BufWriter::new(file);
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
