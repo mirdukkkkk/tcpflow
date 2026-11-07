@@ -118,6 +118,7 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
         store_output: true,
         post: post::Options {
             decompress: true,
+            max_body: 1 << 30,
             ..Default::default()
         },
         max_bytes: None,
@@ -223,6 +224,12 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
                     "tdelta" => cfg.tdelta = number('S', val)?,
                     "tcp_timeout" => cfg.tcp_timeout = Some(number('S', val)?),
                     "packet-buffer-timeout" => cfg.buffer_timeout = number('S', val)?,
+                    "http_max_body" => {
+                        cfg.post.max_body = match number('S', val)? {
+                            0 => u64::MAX,
+                            n => n,
+                        }
+                    }
                     "tcp_cmd" => cfg.hooks.tcp_cmd = Some(val.to_string()),
                     "http_cmd" => cfg.hooks.http_cmd = Some(val.to_string()),
                     "tcp_alert_fd" => cfg.hooks.tcp_alert_fd = Some(number('S', val)?),

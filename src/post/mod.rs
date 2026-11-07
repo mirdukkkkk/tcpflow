@@ -17,6 +17,8 @@ pub struct Options {
     pub http: bool,
     /// Decompress gzip and deflate HTTP bodies (`-Z` turns this off).
     pub decompress: bool,
+    /// `-S http_max_body`: the largest body file written (SPEC.md 13.2).
+    pub max_body: u64,
 }
 
 impl Options {
@@ -54,7 +56,7 @@ pub fn run(opt: &Options, path: &str) -> io::Result<Results> {
     }
     if opt.http {
         let flow = io::BufReader::with_capacity(64 * 1024, &file);
-        results.http = http::scan(path, flow, len, opt.decompress)?;
+        results.http = http::scan(path, flow, len, opt)?;
     }
     Ok(results)
 }

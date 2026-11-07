@@ -499,10 +499,22 @@ For response number `n` (starting at 1) with a body:
 - the body file is `<flow file>-HTTPBODY-<n, 3 digits>`, plus `.<ext>` if
   the `Content-Type` maps to an extension (mime table, identical to
   1.6.2);
-- chunked transfer encoding is removed;
+- chunked transfer encoding is removed. A chunk size is hex digits only,
+  optionally followed by `;` and extensions; anything else is a parse
+  error;
 - `Content-Encoding: gzip` or `deflate` bodies are decompressed unless
-  `-Z`. A decompression error stops writing that body;
-- a body file that would be empty is not created.
+  `-Z`. A decompression error stops writing that body; what was written
+  is kept;
+- a body file is at most `http_max_body` bytes (default 1 GiB, 0 means no
+  limit; D38). The rest of a longer body is not written;
+- a body file that would be empty is not created;
+- a body file that cannot be created or written (name too long, disk
+  full) is reported, removed and left out of the report; the other
+  bodies and flows are processed as usual.
+
+The flow file is read once, front to back: memory use does not grow
+with its size. A header block, chunk-size line or trailer line longer
+than 64 KiB is a parse error.
 
 Each body file adds to the flow's `<fileobject>`:
 
@@ -529,6 +541,7 @@ accepted, so that existing command lines keep working, and do nothing.
 | `tcp_cmd=CMD` | After a flow is closed, run `CMD` with the flow file path as one extra argument (section 13.5, D7). | 2 |
 | `http_cmd=CMD` | The same for each HTTP body file. | 2 |
 | `tcp_alert_fd=N`, `http_alert_fd=N` | Write `open\t<path>` and `close\t<path>` lines to descriptor `N` (section 13.5). | 3 |
+| `http_max_body=N` | Largest HTTP body file in bytes; 0 means no limit (section 13.2). Default 1073741824. | 3 |
 | `packet-buffer-timeout=N` | libpcap read timeout in milliseconds for live capture. | 2 |
 
 An unknown parameter name is a warning, not an error.
@@ -726,6 +739,7 @@ Based on #281, with the problems found in its review fixed (D22–D24):
 | D35 | With `-a` or `-e netviz`, and when built with cairo, `report.pdf` is written: a one-page summary of the capture (time histogram, top addresses and ports). | No `report.pdf` (section 18). |
 | D36 | Output files that already exist are opened through symbolic links: someone who can write to the output directory can plant `report.xml` or a `-K` file as a link and make tcpflow (often root) truncate and overwrite another file. | Links in the output directory are not followed (section 16). |
 | D37 | A shift for data before the guessed ISN (6.2) keeps old bytes in front of the moved content, forgets the seen ranges, so the FIN no longer closes the flow, and leaves the logical size unchanged, so `filesize` is too small. Shifts are unlimited: a few packets make a file of hundreds of megabytes. | Section 6.2. |
+| D38 | Compressed HTTP bodies are decompressed without a limit: a 1 MB response can become a body file of a gigabyte or more. | `http_max_body` (section 13.2). |
 
 Differences that only affect level C outputs are not listed.
 
