@@ -2,13 +2,13 @@
 //! (SPEC.md 13.2). Framing follows http-parser 2.7, which 1.x used.
 
 use std::fs::File;
-use std::io::{self, Write};
+use std::io::{self, BufRead, Read, Write};
 
 use crate::post::mime;
 use crate::sys::privs::output_file;
 
 /// Flows shorter than this are not worth parsing.
-const MIN_SIZE: usize = 80;
+const MIN_SIZE: u64 = 80;
 
 /// One extracted body, for the report's `<byte_runs>`.
 #[derive(Debug, PartialEq, Eq)]
@@ -19,29 +19,39 @@ pub struct BodyRun {
     pub size: u64,
 }
 
-/// Extract the bodies of the HTTP responses in `data`, the content of `flow_path`.
-/// Returns `None` if the flow is not an HTTP response stream.
-pub fn scan(flow_path: &str, data: &[u8], decompress: bool) -> io::Result<Option<Vec<BodyRun>>> {
-    if data.len() < MIN_SIZE || !data.starts_with(b"HTTP/1.") {
+/// Extract the bodies of the HTTP responses in `flow`, the content of `flow_path`,
+/// `len` bytes long. Returns `None` if the flow is not an HTTP response stream.
+/// The flow is read once, front to back, so memory use does not grow with its size.
+pub fn scan(
+    flow_path: &str,
+    flow: impl BufRead,
+    len: u64,
+    decompress: bool,
+) -> io::Result<Option<Vec<BodyRun>>> {
+    if len < MIN_SIZE {
         return Ok(None);
     }
+    let mut s = Stream { r: flow, pos: 0 };
     let mut runs = Vec::new();
-    let mut pos = 0;
     let mut number = 0;
     loop {
-        while pos < data.len() && (data[pos] == b'\r' || data[pos] == b'\n') {
-            pos += 1;
+        if number > 0 {
+            s.skip_newlines()?;
         }
-        if pos >= data.len() {
-            break;
+        let mut raw = Vec::new();
+        let complete = s.head(&mut raw)?;
+        if number == 0 && !raw.starts_with(b"HTTP/1.") {
+            return Ok(None);
         }
-        let Some(head) = parse_head(&data[pos..]) else {
-            break; // incomplete or malformed headers
+        if !complete {
+            break; // incomplete or too long
+        }
+        let Some(head) = parse_head(&raw) else {
+            break; // malformed headers
         };
         number += 1;
-        let framing = match head.framing() {
-            Some(f) => f,
-            None => break,
+        let Some(framing) = head.framing() else {
+            break;
         };
         let mut path = format!("{flow_path}-HTTPBODY-{number:03}");
         let ext = mime::extension(head.get("content-type").unwrap_or(""));
@@ -52,12 +62,12 @@ pub fn scan(flow_path: &str, data: &[u8], decompress: bool) -> io::Result<Option
         let encoded = matches!(head.get("content-encoding"), Some("gzip") | Some("deflate"));
         let mut body = Body::create(&path, encoded && decompress)?;
 
-        let body_start = pos + head.len;
-        let (consumed, complete) = feed_body(&data[body_start..], framing, &mut body)?;
+        let body_start = s.pos;
+        let complete = feed_body(&mut s, framing, &mut body)?;
         // a body cut short by the end of the capture is still reported
         if let Some(size) = body.finish()? {
             runs.push(BodyRun {
-                offset: body_start + body.first_offset.unwrap_or(0),
+                offset: body.first_offset.unwrap_or(body_start),
                 path,
                 size,
             });
@@ -65,9 +75,88 @@ pub fn scan(flow_path: &str, data: &[u8], decompress: bool) -> io::Result<Option
         if !complete || head.upgrade() {
             break;
         }
-        pos = body_start + consumed;
     }
     Ok(Some(runs))
+}
+
+/// The header block and each chunk-size or trailer line are at most this long.
+const MAX_LINE: usize = 64 * 1024;
+
+/// The flow being read, and the offset of the next byte.
+struct Stream<R> {
+    r: R,
+    pos: usize,
+}
+
+impl<R: BufRead> Stream<R> {
+    /// Skip CR and LF between responses.
+    fn skip_newlines(&mut self) -> io::Result<()> {
+        loop {
+            let buf = self.r.fill_buf()?;
+            let n = buf
+                .iter()
+                .take_while(|&&b| b == b'\r' || b == b'\n')
+                .count();
+            let whole = n == buf.len();
+            self.r.consume(n);
+            self.pos += n;
+            if n == 0 || !whole {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Append one line, LF included, of at most `max` bytes to `out`. Returns false
+    /// if the line does not end within the flow or within `max` bytes.
+    fn line(&mut self, max: usize, out: &mut Vec<u8>) -> io::Result<bool> {
+        let n = (&mut self.r).take(max as u64).read_until(b'\n', out)?;
+        self.pos += n;
+        Ok(n > 0 && out.last() == Some(&b'\n'))
+    }
+
+    /// One line without its line ending, or `None` as for `line`.
+    fn short_line(&mut self) -> io::Result<Option<Vec<u8>>> {
+        let mut l = Vec::new();
+        if !self.line(MAX_LINE, &mut l)? {
+            return Ok(None);
+        }
+        l.pop();
+        if l.last() == Some(&b'\r') {
+            l.pop();
+        }
+        Ok(Some(l))
+    }
+
+    /// The status line and headers, up to and including the empty line.
+    fn head(&mut self, out: &mut Vec<u8>) -> io::Result<bool> {
+        loop {
+            let start = out.len();
+            if out.len() >= MAX_LINE || !self.line(MAX_LINE - out.len(), out)? {
+                return Ok(false);
+            }
+            let l = &out[start..];
+            if start > 0 && (l == b"\n" || l == b"\r\n") {
+                return Ok(true);
+            }
+        }
+    }
+
+    /// Copy up to `n` bytes to `body`. Returns the number copied.
+    fn copy(&mut self, n: u64, body: &mut Body) -> io::Result<u64> {
+        let mut copied = 0;
+        while copied < n {
+            let buf = self.r.fill_buf()?;
+            if buf.is_empty() {
+                break;
+            }
+            let k = buf.len().min((n - copied).min(usize::MAX as u64) as usize);
+            body.write(self.pos, &buf[..k])?;
+            self.r.consume(k);
+            self.pos += k;
+            copied += k as u64;
+        }
+        Ok(copied)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,7 +168,6 @@ enum Framing {
 }
 
 struct Head {
-    len: usize,
     status: u32,
     headers: Vec<(String, String)>,
 }
@@ -214,69 +302,51 @@ fn parse_head(data: &[u8]) -> Option<Head> {
             .to_string();
         headers.push((name, value));
     }
-    Some(Head {
-        len,
-        status,
-        headers,
-    })
+    Some(Head { status, headers })
 }
 
-/// Feed the body to `body`. Returns the bytes consumed and whether the body is complete.
-fn feed_body(data: &[u8], framing: Framing, body: &mut Body) -> io::Result<(usize, bool)> {
+/// Feed the body to `body`. Returns whether the body is complete.
+fn feed_body(s: &mut Stream<impl BufRead>, framing: Framing, body: &mut Body) -> io::Result<bool> {
     match framing {
-        Framing::None => Ok((0, true)),
+        Framing::None => Ok(true),
         Framing::UntilEnd => {
-            body.write(0, data)?;
-            Ok((data.len(), true))
+            s.copy(u64::MAX, body)?;
+            Ok(true)
         }
-        Framing::Length(n) => {
-            let available = (data.len() as u64).min(n) as usize;
-            body.write(0, &data[..available])?;
-            Ok((available, available as u64 == n))
-        }
-        Framing::Chunked => {
-            let mut pos = 0;
-            loop {
-                let Some((size_line, n)) = line(&data[pos..]) else {
-                    return Ok((pos, false));
-                };
-                let hex: Vec<u8> = size_line
-                    .iter()
-                    .copied()
-                    .take_while(|&b| b != b';' && b != b' ' && b != b'\t')
-                    .collect();
-                let Some(size) = std::str::from_utf8(&hex)
-                    .ok()
-                    .filter(|s| !s.is_empty())
-                    .and_then(|s| u64::from_str_radix(s, 16).ok())
-                else {
-                    return Ok((pos, false));
-                };
-                pos += n;
-                if size == 0 {
-                    // trailers end with an empty line
-                    loop {
-                        let Some((l, n)) = line(&data[pos..]) else {
-                            return Ok((pos, false));
-                        };
-                        pos += n;
-                        if l.is_empty() {
-                            return Ok((pos, true));
-                        }
+        Framing::Length(n) => Ok(s.copy(n, body)? == n),
+        Framing::Chunked => loop {
+            let Some(size_line) = s.short_line()? else {
+                return Ok(false);
+            };
+            let hex: Vec<u8> = size_line
+                .iter()
+                .copied()
+                .take_while(|&b| b != b';' && b != b' ' && b != b'\t')
+                .collect();
+            let Some(size) = std::str::from_utf8(&hex)
+                .ok()
+                .filter(|s| !s.is_empty())
+                .and_then(|s| u64::from_str_radix(s, 16).ok())
+            else {
+                return Ok(false);
+            };
+            if size == 0 {
+                // trailers end with an empty line
+                loop {
+                    match s.short_line()? {
+                        None => return Ok(false),
+                        Some(l) if l.is_empty() => return Ok(true),
+                        Some(_) => {}
                     }
                 }
-                let available = ((data.len() - pos) as u64).min(size) as usize;
-                body.write(pos, &data[pos..pos + available])?;
-                pos += available;
-                if (available as u64) < size {
-                    return Ok((pos, false));
-                }
-                match line(&data[pos..]) {
-                    Some(([], n)) => pos += n,
-                    _ => return Ok((pos, false)),
-                }
             }
-        }
+            if s.copy(size, body)? < size {
+                return Ok(false);
+            }
+            if s.short_line()? != Some(Vec::new()) {
+                return Ok(false);
+            }
+        },
     }
 }
 
@@ -285,7 +355,7 @@ struct Body {
     path: String,
     out: Option<Sink>,
     written: u64,
-    /// Offset of the first body byte, relative to the start of the body.
+    /// Offset in the flow of the first body byte written.
     first_offset: Option<usize>,
 }
 
@@ -415,12 +485,28 @@ mod tests {
 
     type Files = Vec<(String, Vec<u8>)>;
 
+    /// Scan `data`, and check that reading it 3 bytes at a time gives the same.
     fn scan_bytes(name: &str, data: &[u8]) -> (Option<Vec<BodyRun>>, Files) {
+        let whole = scan_with(name, data, data.len().max(1));
+        assert_eq!(scan_with(name, data, 3), whole, "split reads differ");
+        whole
+    }
+
+    fn scan_with(name: &str, data: &[u8], capacity: usize) -> (Option<Vec<BodyRun>>, Files) {
         let dir = std::env::temp_dir().join(format!("tcpflow-http-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let flow = dir.join("flow").to_string_lossy().into_owned();
-        let runs = scan(&flow, data, true).unwrap();
+        let reader = io::BufReader::with_capacity(capacity, data);
+        let runs = scan(&flow, reader, data.len() as u64, true).unwrap();
+        let runs = runs.map(|r| {
+            r.into_iter()
+                .map(|b| BodyRun {
+                    path: b.path.rsplit('/').next().unwrap().to_string(),
+                    ..b
+                })
+                .collect()
+        });
         let mut files: Vec<_> = std::fs::read_dir(&dir)
             .unwrap()
             .map(|e| {

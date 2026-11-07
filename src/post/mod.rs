@@ -4,7 +4,7 @@ pub mod http;
 pub mod mime;
 
 use std::fs::File;
-use std::io;
+use std::io::{self, Read, Seek};
 
 use md5::{Digest, Md5};
 
@@ -34,19 +34,27 @@ pub struct Results {
 }
 
 pub fn run(opt: &Options, path: &str) -> io::Result<Results> {
-    let file = File::open(path)?;
-    if file.metadata()?.len() == 0 {
-        return Ok(Results::default());
-    }
-    // SAFETY: the flow file is ours and is not modified while mapped.
-    let map = unsafe { memmap2::Mmap::map(&file)? };
+    let mut file = File::open(path)?;
+    let len = file.metadata()?.len();
     let mut results = Results::default();
+    if len == 0 {
+        return Ok(results);
+    }
     if opt.md5 {
-        let digest = Md5::digest(&map[..]);
-        results.md5 = Some(digest.iter().map(|b| format!("{b:02x}")).collect());
+        let mut md5 = Md5::new();
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            match file.read(&mut buf)? {
+                0 => break,
+                n => md5.update(&buf[..n]),
+            }
+        }
+        results.md5 = Some(md5.finalize().iter().map(|b| format!("{b:02x}")).collect());
+        file.rewind()?;
     }
     if opt.http {
-        results.http = http::scan(path, &map, opt.decompress)?;
+        let flow = io::BufReader::with_capacity(64 * 1024, &file);
+        results.http = http::scan(path, flow, len, opt.decompress)?;
     }
     Ok(results)
 }

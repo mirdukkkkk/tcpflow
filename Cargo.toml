@@ -15,7 +15,6 @@ lexopt = "0.3"
 libc = "0.2"
 lzma-rs = "0.3.0"
 md-5 = "0.11.0"
-memmap2 = "0.9.12"
 pcap = "2.5"
 zip = { version = "7.3.0", default-features = false, features = ["deflate"] }
 
