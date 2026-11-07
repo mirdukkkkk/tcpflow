@@ -1,6 +1,6 @@
 //! The flow table: flow creation, reassembly and closing (SPEC.md sections 5, 6 and 8).
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs::{File, FileTimes};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::net::IpAddr;
@@ -176,6 +176,9 @@ pub struct Demux<'a> {
     opt: Options,
     sink: &'a mut dyn FlowSink,
     flows: HashMap<FlowKey, Flow>,
+    /// With `tcp_timeout`: every flow by (last packet second, flow number), so
+    /// that `expire` only looks at the flows that are idle for too long.
+    idle: BTreeMap<(i64, u64), FlowKey>,
     saved: VecDeque<SavedFlow>,
     /// New flows may be created (false while reading `-R` files).
     pub start_new_flows: bool,
@@ -195,6 +198,7 @@ impl<'a> Demux<'a> {
             hooks: crate::output::hooks::Hooks::none(),
             lock: None,
             flows: HashMap::new(),
+            idle: BTreeMap::new(),
             saved: VecDeque::new(),
             start_new_flows: true,
             flow_counter: 0,
@@ -313,6 +317,9 @@ impl<'a> Demux<'a> {
                 index: None,
                 last_use: 0,
             };
+            if self.opt.tcp_timeout.is_some() {
+                self.idle.insert((meta.ts.secs, flow.flow_number), key);
+            }
             self.flow_counter += 1;
             self.flows.insert(key, flow);
         }
@@ -320,6 +327,10 @@ impl<'a> Demux<'a> {
         self.packets += 1;
         {
             let f = self.flows.get_mut(&key).unwrap();
+            if self.opt.tcp_timeout.is_some() && f.last.secs != meta.ts.secs {
+                self.idle.remove(&(f.last.secs, f.flow_number));
+                self.idle.insert((meta.ts.secs, f.flow_number), key);
+            }
             f.last = meta.ts;
             f.len += u64::from(meta.len);
             f.caplen += u64::from(meta.caplen);
@@ -378,12 +389,9 @@ impl<'a> Demux<'a> {
         let Some(timeout) = self.opt.tcp_timeout else {
             return Ok(());
         };
-        let old: Vec<FlowKey> = self
-            .flows
-            .values()
-            .filter(|f| now.secs - f.last.secs > timeout)
-            .map(|f| f.key)
-            .collect();
+        // idle for more than `timeout`: last second < now - timeout
+        let limit = (now.secs.saturating_sub(timeout), 0);
+        let old: Vec<FlowKey> = self.idle.range(..limit).map(|(_, k)| *k).collect();
         for key in old {
             self.close(&key)?;
         }
@@ -679,6 +687,7 @@ impl<'a> Demux<'a> {
         let Some(flow) = self.flows.remove(key) else {
             return Ok(());
         };
+        self.idle.remove(&(flow.last.secs, flow.flow_number));
         if let (true, Some(path)) = (self.opt.index, &flow.path) {
             stream::sort_index(&index_path(path))?;
         }

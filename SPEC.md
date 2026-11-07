@@ -259,7 +259,9 @@ A flow is closed when:
 - a FIN has been seen and every byte up to the FIN has been stored. The
   stream size is `seq + datalen - ISN - 1` from the first FIN;
 - its last packet is older than `tcp_timeout` seconds, if that parameter
-  is set (section 13), checked against each new packet's timestamp;
+  is set (section 13), checked against each new packet's timestamp.
+  Flows that expire at the same packet are closed by the second of their
+  last packet, then in creation order;
 - input ends: all open flows are closed in an unspecified order.
 
 Closing a flow:
