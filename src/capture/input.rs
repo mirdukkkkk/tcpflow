@@ -26,7 +26,7 @@ fn compression(path: &str) -> Option<Compression> {
         (".zip", Compression::Zip),
     ]
     .into_iter()
-    .find(|(suffix, _)| path.ends_with(suffix))
+    .find(|(suffix, _)| path.to_ascii_lowercase().ends_with(suffix))
     .map(|(_, c)| c)
 }
 
@@ -151,6 +151,7 @@ mod tests {
         assert_eq!(compression("a.xz"), Some(Compression::Xz));
         assert_eq!(compression("a.lzma"), Some(Compression::Lzma));
         assert_eq!(compression("a.zip"), Some(Compression::Zip));
+        assert_eq!(compression("A.PCAP.GZ"), Some(Compression::Gzip));
         assert_eq!(compression("a.pcap"), None);
         assert_eq!(compression("-"), None);
     }

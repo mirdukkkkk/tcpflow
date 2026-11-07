@@ -101,3 +101,60 @@ fn console_output_keeps_one_flow_beyond_the_gap_limit() {
     assert!(!text.contains("flow001"), "{text}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_retransmission_that_crosses_the_gap_limit_is_ignored() {
+    let dir = scratch("gap-retrans");
+    // with -m 3, the repeated "hello" is a gap: it closes the flow, and is then
+    // recognised as a retransmission of the flow just closed (SPEC.md 5.2, 5.3)
+    ethernet_pcap(
+        &dir.join("in.pcap"),
+        &[
+            seg(999, SYN, b""),
+            seg(1000, ACK, b"hello"),
+            seg(1005, ACK, b"world"),
+            seg(1000, ACK, b"hello"),
+        ],
+    );
+    assert!(
+        run(&dir, &["-m", "3", "-o", "out", "-r", "in.pcap"])
+            .status
+            .success()
+    );
+    assert_eq!(
+        std::fs::read(dir.join("out").join(FLOW)).unwrap(),
+        b"helloworld"
+    );
+    assert!(!dir.join("out").join(format!("{FLOW}c1")).exists());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn index_files_survive_running_out_of_descriptors() {
+    let dir = scratch("index-emfile");
+    let jpegs = concat!(env!("CARGO_MANIFEST_DIR"), "/samplePcaps/jpegs.cap");
+    let run = |out: &str, limit: &str| {
+        std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "ulimit -n {limit}; exec \"$0\" -I -f 1000 -o {out} -r {jpegs}"
+            ))
+            .arg(TCPFLOW)
+            .current_dir(&dir)
+            .output()
+            .unwrap()
+    };
+    assert!(run("plain", "1024").status.success());
+    let out = run("few", "20");
+    assert!(out.status.success(), "{out:?}");
+    let list = |d: &str| {
+        let mut v: Vec<_> = std::fs::read_dir(dir.join(d))
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        v.sort();
+        v
+    };
+    assert_eq!(list("few"), list("plain"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

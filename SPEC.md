@@ -93,14 +93,19 @@ Invalid options print usage to stderr and exit with status 1.
 
 - Capture files are read through libpcap. Both pcap and pcapng are
   accepted.
-- Files ending in `.gz`, `.bz2`, `.xz`, `.lzma` or `.zip` are
-  decompressed in-process. A `.zip` file is read as its first entry.
+- Files ending in `.gz`, `.bz2`, `.xz`, `.lzma` or `.zip`, in any case,
+  are decompressed in-process. A `.zip` file is read as its first entry.
   No external program and no shell is used. The `.xz` decoder supports
   the CRC32, CRC64 and no-check modes and no filters besides LZMA2: a
   file made with `xz --check=sha256` or a BCJ or delta filter is
   reported as a decompression error.
 - The filter expression is compiled once per input with optimisation
-  on. Packets that do not match are ignored.
+  on, because its meaning depends on the input's link type. Packets that
+  do not match are ignored. An invalid expression is a fatal error (exit
+  status 1) when the first input is opened. By then the output directory
+  and the report file have been created (they must exist before
+  privileges are dropped, section 16): they are left behind, the report
+  without its closing part.
 - For each `-r` file in order, new flows may be created. For each `-R`
   file afterwards, only packets of flows that are still open are
   processed, and no new flows are created.

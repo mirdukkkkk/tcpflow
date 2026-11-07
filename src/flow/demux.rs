@@ -245,16 +245,6 @@ impl<'a> Demux<'a> {
                 return Ok(false);
             }
         }
-        if !exists {
-            if datalen == 0 {
-                if fin || rst || (!syn && !ack) {
-                    return Ok(true);
-                }
-            } else if self.is_saved_retransmission(&key, seg.seq, seg.payload) {
-                return Ok(true);
-            }
-        }
-
         let mut delta: i32 = 0;
         if exists {
             let f = &self.flows[&key];
@@ -263,6 +253,17 @@ impl<'a> Demux<'a> {
                 self.close(&key)?;
                 delta = 0;
                 exists = false;
+            }
+        }
+
+        // a packet that would start a flow, also after a gap closed one (5.2, 5.3)
+        if !exists {
+            if datalen == 0 {
+                if fin || rst || (!syn && !ack) {
+                    return Ok(true);
+                }
+            } else if self.is_saved_retransmission(&key, seg.seq, seg.payload) {
+                return Ok(true);
             }
         }
 
@@ -583,7 +584,14 @@ impl<'a> Demux<'a> {
                         } else {
                             o.append(true);
                         }
-                        Some(o.open(index_path(&path))?)
+                        loop {
+                            match o.open(index_path(&path)) {
+                                Err(e) if is_too_many_files(&e) && self.open_files > 0 => {
+                                    self.close_oldest_file()?;
+                                }
+                                result => break Some(result?),
+                            }
+                        }
                     } else {
                         None
                     };
