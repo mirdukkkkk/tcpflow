@@ -70,6 +70,42 @@ pub fn shift_up(file: &mut File, by: u64) -> io::Result<()> {
     Ok(())
 }
 
+/// Index lines are `offset|seconds.microseconds|length` (SPEC.md 10).
+fn read_index(path: &str) -> io::Result<Vec<(u64, String)>> {
+    let text = std::fs::read_to_string(path)?;
+    Ok(text
+        .lines()
+        .filter_map(|line| {
+            let (offset, rest) = line.split_once('|')?;
+            Some((offset.parse().ok()?, rest.to_string()))
+        })
+        .collect())
+}
+
+fn write_index(path: &str, lines: &[(u64, String)]) -> io::Result<()> {
+    let mut out = String::new();
+    for (offset, rest) in lines {
+        out.push_str(&format!("{offset}|{rest}\n"));
+    }
+    std::fs::write(path, out)
+}
+
+/// Add `by` to every offset: the data moved up (SPEC.md 6.2).
+pub fn shift_index(path: &str, by: u64) -> io::Result<()> {
+    let mut lines = read_index(path)?;
+    for (offset, _) in &mut lines {
+        *offset += by;
+    }
+    write_index(path, &lines)
+}
+
+/// Sort by offset, keeping arrival order for equal offsets.
+pub fn sort_index(path: &str) -> io::Result<()> {
+    let mut lines = read_index(path)?;
+    lines.sort_by_key(|(offset, _)| *offset);
+    write_index(path, &lines)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -51,8 +51,8 @@ fn main() -> ExitCode {
 
 fn run(cfg: &Config) -> Result<ExitCode, String> {
     log::set_level(cfg.debug);
-    if cfg.console.enabled || cfg.index {
-        return Err("console output (-c, -C) and -I are not implemented yet".into());
+    if cfg.console.enabled {
+        return Err("console output (-c, -C) is not implemented yet".into());
     }
     if cfg.rfiles.is_empty() && cfg.big_r_files.is_empty() {
         return Err("live capture (-i) is not implemented yet; use -r".into());
@@ -99,6 +99,7 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
             max_seek: cfg.max_seek,
             max_open: cfg.max_open.unwrap_or_else(demux::default_max_open),
             tcp_timeout: cfg.tcp_timeout,
+            index: cfg.index,
         },
         sink,
     );

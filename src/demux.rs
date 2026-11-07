@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::fs::{File, FileTimes};
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::net::IpAddr;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
@@ -97,6 +97,8 @@ pub struct Flow {
     /// The flow file, once one has been created.
     pub path: Option<String>,
     file: Option<File>,
+    /// The `-I` packet index, open while `file` is open (SPEC.md 10).
+    index: Option<File>,
     last_use: u64,
 }
 
@@ -130,6 +132,8 @@ pub struct Options {
     pub max_open: usize,
     /// `-S tcp_timeout`: close flows idle for longer than this many seconds.
     pub tcp_timeout: Option<i64>,
+    /// `-I`: write a `.findx` packet index for every flow file.
+    pub index: bool,
 }
 
 /// Receives every flow when it is closed.
@@ -267,6 +271,7 @@ impl<'a> Demux<'a> {
                 seen: Some(Seen::default()),
                 path: None,
                 file: None,
+                index: None,
                 last_use: 0,
             };
             self.flow_counter += 1;
@@ -405,6 +410,12 @@ impl<'a> Demux<'a> {
             f.nsn = f.isn.wrapping_add(1);
             f.out_of_order += 1;
             f.seen = None;
+            if let Some(index) = f.index.take() {
+                drop(index);
+                let path = index_path(f.path.as_deref().unwrap());
+                stream::shift_index(&path, insert)?;
+                f.index = Some(File::options().append(true).open(&path)?);
+            }
         } else if offset != pos {
             if delta == -1 && length == 1 {
                 log::debug(25, "keepalive ignored");
@@ -420,7 +431,9 @@ impl<'a> Demux<'a> {
         if wlength > 0 {
             stream::write_at(file, f.pos, &data[..wlength as usize])?;
         }
-        let _ = ts; // used by the packet index (SPEC.md 10)
+        if let Some(index) = f.index.as_mut() {
+            writeln!(index, "{}|{}.{:06}|{}", f.pos, ts.secs, ts.usecs, wlength)?;
+        }
         if let Some(seen) = f.seen.as_mut() {
             seen.add(f.pos, length);
         }
@@ -437,10 +450,17 @@ impl<'a> Demux<'a> {
             return Ok(true);
         }
         loop {
-            if self.open_files >= self.opt.max_open.max(1) {
+            // with -I every flow uses two descriptors
+            let limit = if self.opt.index {
+                self.opt.max_open / 2
+            } else {
+                self.opt.max_open
+            };
+            if self.open_files >= limit.max(1) {
                 self.close_oldest_file()?;
             }
             let f = &self.flows[key];
+            let is_new = f.path.is_none();
             let result = match &f.path {
                 Some(path) => File::options()
                     .read(true)
@@ -453,9 +473,22 @@ impl<'a> Demux<'a> {
             };
             match result {
                 Ok((path, file)) => {
+                    let index = if self.opt.index {
+                        let mut o = File::options();
+                        o.create(true);
+                        if is_new {
+                            o.write(true).truncate(true);
+                        } else {
+                            o.append(true);
+                        }
+                        Some(o.open(index_path(&path))?)
+                    } else {
+                        None
+                    };
                     let f = self.flows.get_mut(key).unwrap();
                     f.path = Some(path);
                     f.file = Some(file);
+                    f.index = index;
                     self.open_files += 1;
                     self.max_open_files = self.max_open_files.max(self.open_files);
                     return Ok(true);
@@ -521,6 +554,7 @@ impl<'a> Demux<'a> {
     /// Close a flow's file handle and set its times to the flow start (SPEC.md 5.4).
     fn close_file(&mut self, key: &FlowKey) {
         let f = self.flows.get_mut(key).unwrap();
+        f.index = None;
         if let Some(file) = f.file.take() {
             let t = f.start.system_time();
             if let Err(e) = file.set_times(FileTimes::new().set_accessed(t).set_modified(t)) {
@@ -536,6 +570,9 @@ impl<'a> Demux<'a> {
         let Some(flow) = self.flows.remove(key) else {
             return Ok(());
         };
+        if let (true, Some(path)) = (self.opt.index, &flow.path) {
+            stream::sort_index(&index_path(path))?;
+        }
         self.sink.flow_closed(&flow)?;
         if self.saved.len() > SAVED_FLOWS {
             self.saved.pop_front();
@@ -547,6 +584,10 @@ impl<'a> Demux<'a> {
         });
         Ok(())
     }
+}
+
+fn index_path(flow_path: &str) -> String {
+    format!("{flow_path}.findx")
 }
 
 fn is_too_many_files(e: &io::Error) -> bool {
