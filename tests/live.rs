@@ -51,6 +51,10 @@ fn namespaces_available() -> bool {
         .output()
         .is_ok_and(|o| o.status.success());
     if !ok {
+        assert!(
+            std::env::var_os("TCPFLOW_REQUIRE_NAMESPACES").is_none(),
+            "no unprivileged user and network namespaces"
+        );
         eprintln!("skipped: no unprivileged user and network namespaces");
     }
     ok
