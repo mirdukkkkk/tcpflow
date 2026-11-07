@@ -1,4 +1,5 @@
 mod cli;
+mod console;
 mod decode;
 mod demux;
 mod naming;
@@ -51,9 +52,6 @@ fn main() -> ExitCode {
 
 fn run(cfg: &Config) -> Result<ExitCode, String> {
     log::set_level(cfg.debug);
-    if cfg.console.enabled {
-        return Err("console output (-c, -C) is not implemented yet".into());
-    }
     if cfg.rfiles.is_empty() && cfg.big_r_files.is_empty() {
         return Err("live capture (-i) is not implemented yet; use -r".into());
     }
@@ -100,6 +98,13 @@ fn run(cfg: &Config) -> Result<ExitCode, String> {
             max_open: cfg.max_open.unwrap_or_else(demux::default_max_open),
             tcp_timeout: cfg.tcp_timeout,
             index: cfg.index,
+            console: cfg.console.enabled.then_some(console::Options {
+                suppress_header: cfg.console.suppress_header,
+                hex: cfg.console.hex,
+                strip_nonprint: cfg.console.strip_nonprint,
+                no_newline: cfg.console.no_newline,
+                color: cfg.console.color,
+            }),
         },
         sink,
     );

@@ -61,8 +61,8 @@ Phase marks the order of implementation: **1** is the first release
 | `-c` | Console output only: print flow data to stdout, create no files and no report (section 9). | 1 |
 | `-C` | Like `-c`, but without the flow name header. Does not disable the report. | 1 |
 | `-D` | Console output as hex dump. Implies `-B`. | 1 |
-| `-s` | Replace non-printable bytes with `.` in console output. | 1 |
-| `-B` | Binary console output, cancels `-s`. | 1 |
+| `-s` | Replace non-printable bytes with `.` in console output. This is the default. | 1 |
+| `-B` | Raw bytes in console output instead of replacing non-printable ones. | 1 |
 | `-0` | No newline after each console packet. | 1 |
 | `-g` | Color console output by direction. | 1 |
 | `-J` | Console output as JSON lines (section 9.3). | 2 |
@@ -329,12 +329,12 @@ For each segment with data:
 
 1. if `-g`, the color: `ESC[0;34m` for a flow whose first SYN had no ACK
    (client to server), else `ESC[0;31m`;
-2. unless `-C` or `-J`: the flow name (section 7, counter 0, without
-   `<outdir>`), then `: `, then a newline if `-D`;
+2. unless `-C` or `-J`: the flow name (section 7, counter 0, with the
+   `<outdir>/` prefix as for files), then `: `, then a newline if `-D`;
 3. the data:
-   - raw bytes by default;
-   - with `-s`, each byte that is not printable ASCII (0x20–0x7e), `\n` or
-     `\r` is replaced by `.`;
+   - by default, each byte that is not printable ASCII (0x20–0x7e), `\n` or
+     `\r` is replaced by `.` (`-s` asks for this explicitly);
+   - with `-B`, the raw bytes;
    - with `-D`, a hex dump (9.2);
 4. if `-g`, `ESC[0m`;
 5. unless `-0`, a newline.

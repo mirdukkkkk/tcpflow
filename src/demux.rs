@@ -7,6 +7,7 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
+use crate::console;
 use crate::decode::{LinkInfo, Segment, TH_ACK, TH_FIN, TH_RST, TH_SYN};
 use crate::naming::{NameInfo, Template};
 use crate::stream::{self, Seen};
@@ -134,6 +135,8 @@ pub struct Options {
     pub tcp_timeout: Option<i64>,
     /// `-I`: write a `.findx` packet index for every flow file.
     pub index: bool,
+    /// `-c`/`-C`: print segments instead of storing them (SPEC.md 9).
+    pub console: Option<console::Options>,
 }
 
 /// Receives every flow when it is closed.
@@ -298,8 +301,12 @@ impl<'a> Demux<'a> {
             }
         }
 
-        if datalen > 0 && self.opt.store_output {
-            self.store(&key, seg.payload, delta, meta.ts)?;
+        if datalen > 0 {
+            if let Some(copt) = self.opt.console {
+                self.print(&key, seg.payload, &copt)?;
+            } else if self.opt.store_output {
+                self.store(&key, seg.payload, delta, meta.ts)?;
+            }
         }
 
         if rst {
@@ -368,6 +375,37 @@ impl<'a> Demux<'a> {
             f.read_exact(&mut buf)
         });
         matches.is_ok() && buf == payload
+    }
+
+    /// Print a segment to stdout (SPEC.md 9.1).
+    fn print(&mut self, key: &FlowKey, data: &[u8], copt: &console::Options) -> io::Result<()> {
+        let max_bytes = self.opt.max_bytes;
+        let f = self.flows.get_mut(key).unwrap();
+        let mut length = data.len() as u64;
+        if let Some(max) = max_bytes {
+            if f.last_byte > max {
+                return Ok(());
+            }
+            length = length.min(max - f.last_byte);
+            if length == 0 {
+                return Ok(());
+            }
+        }
+        if f.path.is_none() {
+            let name = self.opt.template.expand(&f.name_info(), 0);
+            f.path = Some(join_outdir(&self.opt.outdir, name));
+        }
+        let to_server = f.direction == Direction::ClientToServer;
+        let name = f.path.as_deref().unwrap();
+        console::print(
+            &mut io::stdout().lock(),
+            copt,
+            name,
+            to_server,
+            &data[..length as usize],
+        )?;
+        f.last_byte += length;
+        Ok(())
     }
 
     /// Store a segment's data in its flow file (SPEC.md section 6).
@@ -513,12 +551,7 @@ impl<'a> Demux<'a> {
     fn create_file(&self, f: &Flow) -> io::Result<(String, File)> {
         let info = f.name_info();
         for counter in 0u32.. {
-            let name = self.opt.template.expand(&info, counter);
-            let path = if self.opt.outdir.is_empty() || self.opt.outdir == "." {
-                name
-            } else {
-                format!("{}/{}", self.opt.outdir, name)
-            };
+            let path = join_outdir(&self.opt.outdir, self.opt.template.expand(&info, counter));
             if let Some(parent) = Path::new(&path).parent() {
                 if !parent.as_os_str().is_empty() {
                     std::fs::create_dir_all(parent)?;
@@ -583,6 +616,15 @@ impl<'a> Demux<'a> {
             isn: flow.isn,
         });
         Ok(())
+    }
+}
+
+/// `<outdir>/<name>`, or just `<name>` for the current directory (SPEC.md 7.1).
+fn join_outdir(outdir: &str, name: String) -> String {
+    if outdir.is_empty() || outdir == "." {
+        name
+    } else {
+        format!("{outdir}/{name}")
     }
 }
 

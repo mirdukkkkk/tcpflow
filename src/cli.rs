@@ -143,7 +143,7 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
                 cfg.console.hex = true;
                 cfg.console.force_binary = true;
             }
-            Short('s') => cfg.console.strip_nonprint = true,
+            Short('s') => {} // the default; kept for compatibility
             Short('B') => cfg.console.force_binary = true,
             Short('0') => cfg.console.no_newline = true,
             Short('g') => cfg.console.color = true,
@@ -181,9 +181,8 @@ pub fn parse(args: Vec<String>) -> Result<Action, String> {
     } else {
         cfg.expression = rest.join(" ");
     }
-    if cfg.console.force_binary {
-        cfg.console.strip_nonprint = false;
-    }
+    // console output replaces non-printable bytes unless -B or -D (SPEC.md 9.1)
+    cfg.console.strip_nonprint = !cfg.console.force_binary;
     Ok(Action::Run(Box::new(cfg)))
 }
 
