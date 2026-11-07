@@ -368,8 +368,11 @@ stored segment:
 <offset>|<seconds>.<microseconds, 6 digits>|<length>
 ```
 
-`length` is the number of bytes written after `-b` truncation. When the
-flow is closed, lines are sorted by offset with a stable sort.
+`length` is the number of bytes written after `-b` truncation. When data
+is shifted because it arrived before the guessed ISN (section 6.2), every
+existing offset grows by the same amount, so offsets always point at the
+data. When the flow is closed, lines are sorted by offset with a stable
+sort (D16).
 
 ## 11. Per-flow pcap (`-K`)
 
@@ -575,6 +578,7 @@ As specified for 1.6.2 by #281:
 | D13 | The MAC addresses in `report.xml` are copied from the first 12 bytes of every frame, so loopback and raw IP captures get garbage `mac_daddr`/`mac_saddr` values. | MAC addresses only for Ethernet. Fixed in 1.x as well (`fix/report-mac`). |
 | D14 | An IPv6 packet with payload length 0 has no TCP data. | The captured length is used, as for IPv4 (section 4.3). |
 | D15 | Report timestamps drop the fraction when the microseconds are 0 (`…:41Z` instead of `…:41.000000Z`, #206). | Always 6 digits of microseconds. |
+| D16 | `.findx` offsets are not adjusted when data is shifted (6.2), so they point at the wrong bytes; the index is never sorted although the documentation says so. | Offsets follow the data and the index is sorted. Fixed in 1.x as well (`fix/findx-offsets`). |
 
 Differences that only affect level C outputs are not listed.
 
