@@ -46,7 +46,11 @@ fn shifting_is_limited_and_keeps_the_file_sparse() {
     assert!(run(&dir, &["-o", "out", "-r", "in.pcap"]).status.success());
     let meta = std::fs::metadata(dir.join("out").join(FLOW)).unwrap();
     assert_eq!(meta.len(), 15_000_001);
+    // whether a skipped range takes disk space depends on the file system; ext4,
+    // xfs and tmpfs keep it sparse
+    #[cfg(target_os = "linux")]
     use std::os::unix::fs::MetadataExt;
+    #[cfg(target_os = "linux")]
     assert!(
         meta.blocks() * 512 < 1 << 20,
         "the shift wrote {} bytes",
