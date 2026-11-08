@@ -1,10 +1,4 @@
-mod capture;
-mod cli;
-mod flow;
-mod log;
-mod output;
-mod post;
-mod sys;
+use tcpflow::{capture, cli, flow, log, output, post, sys};
 
 use std::io;
 use std::process::ExitCode;

@@ -45,6 +45,10 @@ impl Seen {
         self.total
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.total == 0
+    }
+
     /// Every offset moves up by `by` (SPEC.md 6.2).
     pub fn shift(&mut self, by: u64) {
         self.ranges = std::mem::take(&mut self.ranges)
