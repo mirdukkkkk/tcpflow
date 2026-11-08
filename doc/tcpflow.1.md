@@ -419,8 +419,7 @@ One pcap file per flow:
 IP fragments are not reassembled: flows with fragmented packets are not
 stored correctly.
 
-Report bugs at
-[github.com/simsong/tcpflow/issues](https://github.com/simsong/tcpflow/issues).
+Report bugs at https://github.com/simsong/tcpflow/issues.
 
 # AUTHORS
 

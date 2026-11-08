@@ -1,12 +1,13 @@
 #!/bin/sh
 # Regenerate doc/tcpflow.1 from doc/tcpflow.1.md (needs pandoc).
 # With --check, only check that the committed page shows the same text as the
-# Markdown (needs pandoc and groff; CI runs this). The rendered text is
-# compared, so that another pandoc version does not count as a change.
+# Markdown (needs pandoc and groff; CI runs this). The words of the rendered
+# text are compared, without hyphenation, so that another pandoc or groff
+# version, which justifies lines differently, does not count as a change.
 set -eu
 cd "$(dirname "$0")"
 gen() { pandoc -s -f markdown-smart -t man tcpflow.1.md -o "$1"; }
-show() { MANWIDTH=80 groff -man -Tascii "$1" 2>/dev/null | col -bx; }
+show() { groff -man -rHY=0 -Tascii -P-cbou "$1" 2>/dev/null | tr -s '[:space:]' '\n'; }
 
 if [ "${1-}" != --check ]; then
     gen tcpflow.1
