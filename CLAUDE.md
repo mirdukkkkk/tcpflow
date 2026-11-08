@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build (rust)
 
-Needs Rust (edition 2024, MSRV 1.87) and libpcap with pkg-config. With Nix: `nix develop` for a shell with cargo, clippy, libpcap and python3; `nix build` builds and tests the package; `nix flake check` also runs the conformance check. The 1.x flake is in `nix/tcpflow-1.x/`.
+Needs Rust (edition 2024, MSRV 1.87) and libpcap with pkg-config. With Nix: `nix develop` for a shell with cargo, clippy, libpcap and python3; `nix build` builds and tests the package; `nix flake check` also runs the conformance check. The flake that builds 1.x (for the reference) is no longer in the tree: `git show 2178d81:nix/tcpflow-1.x/flake.nix` (and `flake.lock`).
 
 ```sh
 cargo build --release          # target/release/tcpflow
@@ -28,7 +28,7 @@ CI (`.github/workflows/ci.yml`) runs fmt, clippy and tests on Ubuntu and macOS, 
 - `tests/scripts/conformance.py` runs every capture under `tests/captures/` under each run in `RUNS` (`default`, `all`, `index`, `bins`, `template`, `limit`, `pcap`, `unprocessed`, `console`, `console-hdr`, `hex`, `json`) and compares with `tests/golden/` (SPEC.md section 15).
 - The golden data comes from a reference 1.6.2 binary: `main` plus all `fix/*` branches merged. `conformance.py generate <ref>` refuses to write golden data if the reference hangs or crashes.
 - When 2.0 differs from the golden data, find out which side is wrong. If 1.x is wrong: add a `D<n>` row to SPEC.md section 17, fix 1.x in a new `fix/*` branch with a test if it is cheap, rebuild the reference with that branch merged, and regenerate the golden data. Otherwise record the case in `tests/golden/EXPECTED_DIFFERENCES`.
-- Building the reference: a detached worktree of the latest `ref: merge ...` commit, merge the new `fix/*` branch (conflicts in `tests/Makefile.am` are unions of the `SH_TESTS`/`EXTRA_DIST` lists), copy in `nix/tcpflow-1.x/flake.nix` and its `flake.lock`, `nix build path:.#tcpflow` (runs `make check`). Tag the new `ref: merge` commit `ref-<n+1>` and push the tag, so the reference stays reachable.
+- Building the reference: a detached worktree of the latest `ref: merge ...` commit, merge the new `fix/*` branch (conflicts in `tests/Makefile.am` are unions of the `SH_TESTS`/`EXTRA_DIST` lists), copy in the 1.x `flake.nix` and `flake.lock` from `2178d81:nix/tcpflow-1.x/`, `nix build path:.#tcpflow` (runs `make check`). Tag the new `ref: merge` commit `ref-<n+1>` and push the tag, so the reference stays reachable.
 
 ## Architecture (rust)
 
