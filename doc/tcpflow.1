@@ -1,0 +1,658 @@
+.\" tcpflow(1). Every option of src/cli.rs must be described here
+.\" (tests/manpage.rs checks it). View with: man ./doc/tcpflow.1
+.TH TCPFLOW 1 "2026-11-08" "tcpflow 2.0.0-dev" "User Commands"
+.SH NAME
+tcpflow \- TCP flow recorder
+.SH SYNOPSIS
+.B tcpflow
+.RB [ \-aBcCDgIJKlpqsvVZ0 ]
+.RB [ \-b
+.IR max_bytes ]
+.RB [ \-d
+.IR level ]
+.RB [ \-e | \-x | \-E
+.IR name ]
+.RB [ \-f
+.IR max_fds ]
+.RB [ \-F
+.IR flags ]
+.RB [ \-i
+.IR iface ]
+.RB [ \-L
+.IR name ]
+.RB [ \-m
+.IR bytes ]
+.RB [ \-o
+.IR outdir ]
+.RB [ \-r
+.IR file ]...
+.RB [ \-R
+.IR file ]...
+.RB [ \-S
+.IR name = value ]...
+.RB [ \-T
+.IR template ]
+.RB [ \-U
+.IR user [: group ]]
+.RB [ \-w
+.IR file ]
+.RB [ \-X
+.IR file ]
+.RB [ \-z
+.IR dir ]
+.RI [ expression ]
+.SH DESCRIPTION
+.B tcpflow
+captures data transmitted as part of TCP connections (flows) and stores
+it in a way that is convenient for protocol analysis and debugging.
+Rather than showing packet by packet information,
+.B tcpflow
+reconstructs the actual data streams and stores each flow in its own
+file.
+It understands TCP sequence numbers and reconstructs the streams
+correctly regardless of retransmissions or out-of-order delivery.
+A typical connection gives two files, one for each direction.
+.PP
+.B tcpflow
+reads packets from capture files
+.RB ( \-r ,
+.BR \-R ,
+.BR \-l )
+or, without them, captures live from a network interface
+.RB ( \-i ).
+Capture files may be pcap or pcapng, and may be compressed with gzip
+.RI ( .gz ),
+bzip2
+.RI ( .bz2 ),
+xz or lzma
+.RI ( .xz ,
+.IR .lzma )
+or zip
+.RI ( .zip ,
+the first entry); they are decompressed by
+.B tcpflow
+itself.
+.PP
+The optional
+.I expression
+is a libpcap filter (see
+.BR pcap\-filter (7)),
+such as
+.BR "'tcp port 80'" .
+All remaining arguments are joined with spaces, so the expression may be
+given as one quoted argument or as several.
+Only packets that match it are processed.
+.PP
+Supported link layers are Ethernet (with VLAN tags), Linux cooked
+capture, raw IP, BSD loopback (NULL and LOOP), PPP, Token Ring,
+802.11 (plain, radiotap and Prism).
+IPv4 and IPv6 are supported; IP fragments are not reassembled.
+.PP
+When a flow is closed (FIN, RST,
+.B tcp_timeout
+or the end of input),
+.B tcpflow
+runs the post-processors
+.RB ( \-a ,
+.BR \-e )
+on its file and adds the flow to the DFXML report.
+.SH OPTIONS
+.SS Input
+.TP
+.BI \-r " file"
+Read packets from a capture file.
+May be repeated; the files are read in order.
+.B \-
+is standard input.
+.TP
+.BI \-R " file"
+Read a capture file only to finish flows that are already open: no new
+flows are created.
+The
+.B \-R
+files are read after all
+.B \-r
+files.
+This is meant for a series of files captured over time: process file
+.I n
+with
+.BI \-r " file(n)"
+and file
+.I n+1
+with
+.BI \-R " file(n+1)" .
+May be repeated.
+.TP
+.B \-l
+Treat the remaining arguments as capture files, as if each had a
+.B \-r
+in front, instead of a filter expression.
+For example
+.B tcpflow \-o out \-l *.pcap
+reads all pcap files in the current directory.
+.TP
+.BI \-i " iface"
+Capture live on the network interface
+.IR iface .
+Without
+.BR \-i ,
+.BR \-r ,
+.B \-R
+or
+.BR \-l ,
+.B tcpflow
+captures on the first interface libpcap reports.
+.B \-i
+together with input files is an error.
+Live capture runs until SIGINT, SIGTERM or SIGHUP; then the open flows
+are closed and the report is written.
+.TP
+.B \-p
+Do not put the interface into promiscuous mode.
+It may already be in promiscuous mode for another reason.
+.SS Output files
+.TP
+.BI \-o " outdir"
+Write flow files and the report into
+.IR outdir ,
+default the current directory.
+The directory is created (one level) if it does not exist.
+.TP
+.BI \-T " template"
+Name flow files with
+.I template
+(see
+.BR "FILE NAMES" ).
+If the template has no
+.BR %c ,
+.B %C%c
+is appended.
+.TP
+.BI \-F " flags"
+File name and output flags, applied in the order given; several may be
+combined, as in
+.BR \-Fct .
+Because
+.B \-T
+replaces the whole template, flags given before it are lost.
+.RS
+.TP
+.B c
+Always append the connection counter: the first file gets
+.BR c0 .
+.TP
+.B t
+Prepend the flow start time in Unix seconds and
+.BR T .
+.TP
+.B T
+Prepend the flow start time in ISO 8601.
+.TP
+.B k
+Put flow files into directories of 1000 flows
+.RB ( %K/ ).
+.TP
+.B m
+Two directory levels, for up to a million flows.
+.TP
+.B g
+Three directory levels, for up to a billion flows.
+.TP
+.B X
+Store no flow files; the report is still written.
+Cannot be combined with post-processors.
+.TP
+.B M
+Add the MD5 of every flow to the report (the
+.B md5
+post-processor).
+.RE
+.TP
+.BI \-b " max_bytes"
+Store at most
+.I max_bytes
+bytes of each flow; the rest is discarded.
+The default is no limit.
+.TP
+.BI \-m " bytes"
+A sequence number gap of more than
+.I bytes
+starts a new flow file (with the next connection counter).
+The default is 16777216 (16 MiB).
+.TP
+.BI \-f " max_fds"
+Keep at most
+.I max_fds
+flow files open at once.
+When the limit is reached, the least recently written file is closed and
+reopened later.
+The default is the process file limit minus 6; with
+.B \-I
+it is halved.
+.TP
+.BI \-X " file"
+Write the DFXML report to
+.I file
+instead of
+.IR outdir/report.xml .
+.TP
+.B \-I
+Write a packet index
+.I F.findx
+next to each flow file
+.IR F .
+It has one line per stored segment:
+.RS
+.IP
+.IB offset | seconds . microseconds | length
+.RE
+.IP
+where
+.I offset
+is the position in the flow file and
+.I length
+the number of bytes stored.
+The lines are sorted by offset when the flow is closed.
+.TP
+.B \-K
+Write one pcap file per flow instead of the reassembled data.
+The name is the flow file name plus
+.BR .pcap ;
+flows whose names are the same share a file.
+No post-processors, commands or alerts run with
+.BR \-K .
+.TP
+.BI \-w " file"
+Write the IP packets that were not processed as TCP (UDP, ICMP,
+fragments, malformed packets, ignored SYNs) to
+.I file
+in pcap format.
+.TP
+.B \-q
+Do not warn when the output directory ends up with 10000 files or more
+(see
+.BR \-Fk ).
+.SS Console output
+.TP
+.B \-c
+Print the data of each segment to standard output, in arrival order,
+instead of writing files.
+Each segment is preceded by the flow name and
+.BR ": " .
+No report is written.
+.TP
+.B \-C
+Like
+.BR \-c ,
+without the flow name.
+Unlike
+.BR \-c ,
+the report is still written.
+.TP
+.B \-s
+Replace bytes that are not printable ASCII, newline or carriage return
+with
+.B .
+when printing.
+This is the default.
+.TP
+.B \-B
+Print the bytes as they are.
+.TP
+.B \-D
+Print a hex dump, 32 bytes per line.
+Implies
+.BR \-B .
+.TP
+.B \-0
+Do not print a newline after each segment.
+.TP
+.B \-g
+Colour each segment by direction: blue for client to server, red for
+server to client.
+.TP
+.B \-J
+Print each segment as a JSON line with
+.BR src_host ,
+.BR src_port ,
+.BR dst_host ,
+.B dst_port
+and
+.B payload
+(the bytes as numbers).
+Implies
+.B \-c
+unless
+.B \-C
+is given.
+.TP
+.BI \-L " name"
+Take the POSIX named semaphore
+.I name
+around each printed segment, so that several
+.B tcpflow
+processes printing to the same terminal or pipe do not mix their output.
+The semaphore is created with value 1 if it does not exist.
+.SS Post-processing
+.TP
+.B \-a
+Run all post-processors: the same as
+.BR "\-e all" .
+.TP
+.BI \-e " name"
+Enable a post-processor:
+.RS
+.TP
+.B http
+Extract the body of each HTTP response in a server-to-client flow into
+.IB flowfile \-HTTPBODY\- nnn . ext\fR,
+where
+.I nnn
+is the response number from 001 and
+.I ext
+comes from the
+.BR Content\-Type .
+Chunked encoding is removed, and gzip and deflate bodies are
+decompressed unless
+.BR \-Z .
+A body is written up to
+.B http_max_body
+bytes.
+.TP
+.B md5
+Add the MD5 of every flow file to the report.
+.TP
+.B all
+Both.
+.RE
+.IP
+.BR netviz ,
+.B tcpdemux
+and
+.B wifiviz
+are accepted for old command lines and do nothing.
+.TP
+.BI \-x " name"
+Disable a post-processor.
+.TP
+.BI \-E " name"
+Disable all post-processors, then enable
+.IR name .
+.TP
+.B \-Z
+Do not decompress gzip or deflate HTTP bodies.
+.TP
+.BI \-S " name" = value
+Set a parameter (see
+.BR PARAMETERS ).
+May be repeated.
+.SS Privileges
+.TP
+.BI \-U " spec\fR, " \-\-relinquish\-privileges= spec
+Drop root privileges once the first input or the capture device is open.
+.I spec
+is
+.IR user ,
+.IR uid ,
+.IR user : group ,
+.IR uid : gid
+or
+.RI : group .
+A user gives its primary group unless a group is named; a numeric uid
+without a passwd entry needs a group.
+Before dropping, the output directory, the report and the
+.B \-w
+file are handed to the new user if
+.B tcpflow
+created them.
+Inputs opened later must be readable by the new user.
+Any failure is fatal.
+.TP
+.BI \-z " dir\fR, " \-\-chroot= dir
+Change the root directory to
+.I dir
+when dropping privileges.
+Needs
+.B \-U
+with a user other than root.
+The output directory
+.B \-o
+.I O
+is
+.IR dir/O .
+.SS Other
+.TP
+.BI \-d " level"
+Debug level for messages on standard error: 0 is silent, 1 (the default)
+prints minimal status, 10 is verbose, higher levels are for developers.
+.TP
+.BR \-v ", " \-\-verbose
+The same as
+.BR "\-d 10" .
+.TP
+.BR \-V ", " \-\-version
+Print the version and exit.
+.TP
+.BR \-h ", " \-\-help
+Print the options and exit;
+.B \-hh
+also prints the parameters and file name codes.
+.SH PARAMETERS
+Set with
+.BI \-S " name" = value\fR.
+An unknown name is a warning.
+.TP
+.BI enable_report= 0
+Do not write the report.
+.TP
+.BI tdelta= N
+Add
+.I N
+seconds to every packet timestamp.
+.TP
+.BI tcp_timeout= N
+Close flows that have been idle for more than
+.I N
+seconds of capture time.
+.TP
+.BI tcp_cmd= CMD
+After a flow is closed, run
+.I CMD
+with the flow file as its last argument.
+The command runs as
+.BR "sh \-c 'CMD \(dq$1\(dq' tcpflow" " " \fIPATH\fR,
+so the file name is never parsed by the shell.
+At most 10 commands run at a time, and
+.B tcpflow
+waits for all of them before it exits.
+.TP
+.BI http_cmd= CMD
+The same for each HTTP body file.
+.TP
+.BI tcp_alert_fd= N
+Write a line
+.BI open\(rs t path
+when a flow file is created and
+.BI close\(rs t path
+when its flow is closed to the open file descriptor
+.IR N .
+.TP
+.BI http_alert_fd= N
+The same for HTTP body files.
+.TP
+.BI http_max_body= N
+The largest HTTP body file in bytes; 0 means no limit.
+The default is 1073741824 (1 GiB).
+.TP
+.BI packet\-buffer\-timeout= N
+The libpcap read timeout for live capture in milliseconds, default 10.
+.SH FILE NAMES
+The default template is
+.BR %A.%a\-%B.%b%V%v%C%c ,
+for example
+.PP
+.RS
+.B 192.168.001.103.36322\-171.025.221.158.00080
+.RE
+.PP
+for data sent from 192.168.1.103 port 36322 to 171.25.221.158 port 80.
+A new file is never overwritten: while the name exists, the connection
+counter is increased, so a second run into the same directory gives
+.B ...c1
+files.
+The codes are:
+.TP
+.BR %A ", " %B
+Source, destination address: four zero-padded octets for IPv4
+.RB ( 010.000.000.001 ),
+the usual text form for IPv6.
+.TP
+.BR %a ", " %b
+Source, destination port, 5 digits.
+.TP
+.BR %E ", " %e
+Source, destination MAC address; zeros if not Ethernet.
+.TP
+.BR %V ", " %v
+.B \-\-
+and the VLAN ID, if the flow has one.
+.TP
+.BR %T ", " %t
+Flow start time: ISO 8601 UTC
+.RB ( 2017\-11\-17T22:57:10Z ),
+Unix seconds.
+.TP
+.BR %c ", " %C ", " %#
+The connection counter if it is above 0;
+.B c
+if it is above 0; the counter always.
+.TP
+.BR %N ", " %K ", " %M ", " %G
+The flow number in groups of 3 digits: units, thousands, millions,
+billions.
+.TP
+.B %S
+The session ID, 20 digits; both directions of a connection share it.
+.TP
+.B %%
+A literal
+.BR % .
+.PP
+A
+.B /
+in the expanded name creates directories, for example
+.PP
+.RS
+.B tcpflow \-r packets.pcap \-o out \-T %A/%a/%B/%b/%c%N.flow
+.RE
+.SH REPORT
+Unless
+.B \-c
+or
+.B \-S enable_report=0
+is given,
+.B tcpflow
+writes a DFXML report,
+.I outdir/report.xml
+by default
+.RB ( \-X ).
+It records the command line, the system, a summary and one
+.B <fileobject>
+per closed flow, with its file name, size and a
+.B <tcpflow>
+element with the attributes
+.BR startime ,
+.BR endtime ,
+.BR family ,
+.BR src_ipn ,
+.BR dst_ipn ,
+.BR srcport ,
+.BR dstport ,
+.BR packets ,
+.BR len ,
+.B caplen
+and, if present,
+.BR mac_saddr ,
+.BR mac_daddr ,
+.B out_of_order_count
+and
+.BR violations .
+With
+.B md5
+it adds a
+.BR <hashdigest> ,
+with
+.B http
+a
+.B <byte_runs>
+entry for each body file.
+.SH EXIT STATUS
+0 on success.
+1 for invalid options, an input or device that cannot be opened, an
+invalid filter, a failure to drop privileges, or a read error in an
+input file (the other files are still processed).
+.SH SECURITY
+Files in the output directory are never opened through symbolic links,
+and new flow files are created exclusively.
+Commands from
+.B tcp_cmd
+and
+.B http_cmd
+get the file name as an argument, never as shell text.
+When capturing as root, use
+.B \-U
+to drop privileges after the device is open.
+.SH EXAMPLES
+Store the flows of a capture file in
+.IR out ,
+with HTTP bodies and MD5 digests:
+.PP
+.RS
+.B tcpflow \-a \-o out \-r capture.pcap
+.RE
+.PP
+Only port 80, from a compressed file:
+.PP
+.RS
+.B tcpflow \-o out \-r capture.pcap.gz 'port 80'
+.RE
+.PP
+Print live traffic to the terminal:
+.PP
+.RS
+.B tcpflow \-i eth0 \-c
+.RE
+.PP
+Capture live as root, then run as nobody, with flows binned 1000 to a
+directory:
+.PP
+.RS
+.B tcpflow \-i eth0 \-U nobody \-o out \-Fk
+.RE
+.PP
+Traffic between helios and hot or ace, with a report in
+.IR flows.xml :
+.PP
+.RS
+.B tcpflow \-X flows.xml \-o out host helios and \e( hot or ace \e)
+.RE
+.PP
+One pcap file per flow:
+.PP
+.RS
+.B tcpflow \-K \-o out \-r capture.pcap
+.RE
+.SH BUGS
+IP fragments are not reassembled: flows with fragmented packets are not
+stored correctly.
+.PP
+Report bugs at
+.IR https://github.com/simsong/tcpflow/issues .
+.SH AUTHORS
+Originally written by Jeremy Elson; maintained by Simson L. Garfinkel.
+tcpflow 2.0 is a rewrite in Rust by mirdukkkkk.
+.SH SEE ALSO
+.BR tcpdump (1),
+.BR pcap (3PCAP),
+.BR pcap\-filter (7),
+.BR pcap\-savefile (5)

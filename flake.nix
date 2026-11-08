@@ -31,6 +31,7 @@
               ./src
               ./tests
               ./doc/completions
+              ./doc/tcpflow.1
             ];
           };
           cargoLock.lockFile = ./Cargo.lock;
@@ -42,6 +43,7 @@
           buildInputs = [ pkgs.libpcap ];
 
           postInstall = ''
+            installManPage doc/tcpflow.1
             installShellCompletion --bash --name tcpflow doc/completions/tcpflow.bash
             installShellCompletion --zsh doc/completions/_tcpflow
             installShellCompletion --fish doc/completions/tcpflow.fish

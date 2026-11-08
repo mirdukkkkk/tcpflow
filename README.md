@@ -60,6 +60,9 @@ The program is `target/release/tcpflow`; copy it anywhere on your `PATH`.
 Capturing from an interface needs root, or on Linux the capabilities
 `cap_net_raw,cap_net_admin`.
 
+The man page is `doc/tcpflow.1` (`man ./doc/tcpflow.1` to read it in place,
+or copy it to `~/.local/share/man/man1/`).
+
 Shell completions are in `doc/completions/`. To install them for your user:
 
 | Shell | Command |
@@ -83,8 +86,8 @@ tcpflow -K -o out -r capture.pcap            # one pcap file per flow instead of
 ```
 
 `tcpflow -h` lists the options, `tcpflow -hh` also the parameters (`-S`)
-and the file name codes (`-T`). [SPEC.md](SPEC.md) describes every option in
-detail.
+and the file name codes (`-T`); `man tcpflow` describes them all.
+[SPEC.md](SPEC.md) is the full specification.
 
 ### Output file names
 
