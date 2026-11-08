@@ -60,6 +60,14 @@ The program is `target/release/tcpflow`; copy it anywhere on your `PATH`.
 Capturing from an interface needs root, or on Linux the capabilities
 `cap_net_raw,cap_net_admin`.
 
+Shell completions are in `doc/completions/`. To install them for your user:
+
+| Shell | Command |
+|---|---|
+| bash | `cp doc/completions/tcpflow.bash ~/.local/share/bash-completion/completions/tcpflow` |
+| zsh | `cp doc/completions/_tcpflow ~/.zfunc/`, with `fpath=(~/.zfunc $fpath)` before `compinit` in `~/.zshrc` |
+| fish | `cp doc/completions/tcpflow.fish ~/.config/fish/completions/` |
+
 Nix is optional: if you use it, `nix build` builds the package and
 `nix develop` gives a shell with all of the above.
 

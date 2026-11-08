@@ -70,6 +70,242 @@ pub enum Action {
     Help(u32),
 }
 
+/// What an option's argument is, for the shell completions (`completions.rs`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Value {
+    File,
+    Dir,
+    Interface,
+    User,
+    /// `-S name=value`, from [`PARAMS`].
+    Param,
+    /// `-e`, `-x`, `-E`, from [`POST_PROCESSORS`].
+    PostProcessor,
+    /// `-F`, from [`F_FLAGS`].
+    Flags,
+    Number,
+    Text,
+}
+
+/// One command line option. The order is the order of `tcpflow -h`.
+pub struct Opt {
+    pub letter: char,
+    pub long: Option<&'static str>,
+    /// The argument: its name in the help and what it is.
+    pub value: Option<(&'static str, Value)>,
+    pub repeatable: bool,
+    /// One line for the completions.
+    pub help: &'static str,
+    /// The `-h` line: left column and text; `None` if another option's line covers it.
+    pub line: Option<(&'static str, &'static str)>,
+}
+
+const fn opt(letter: char, help: &'static str) -> Opt {
+    Opt {
+        letter,
+        long: None,
+        value: None,
+        repeatable: false,
+        help,
+        line: None,
+    }
+}
+
+impl Opt {
+    const fn value(mut self, name: &'static str, kind: Value) -> Opt {
+        self.value = Some((name, kind));
+        self
+    }
+    const fn long(mut self, name: &'static str) -> Opt {
+        self.long = Some(name);
+        self
+    }
+    const fn repeatable(mut self) -> Opt {
+        self.repeatable = true;
+        self
+    }
+    const fn line(mut self, left: &'static str, text: &'static str) -> Opt {
+        self.line = Some((left, text));
+        self
+    }
+}
+
+/// Every option `parse` accepts (SPEC.md 2).
+pub const OPTIONS: &[Opt] = &[
+    opt('r', "read packets from a capture file")
+        .value("file", Value::File)
+        .repeatable()
+        .line("-r file", "read packets from a capture file (repeatable; - is stdin; .gz .bz2 .xz .zip)"),
+    opt('R', "read a file only to finish flows that are already open")
+        .value("file", Value::File)
+        .repeatable()
+        .line("-R file", "read a file only to finish flows that are already open"),
+    opt('l', "treat the remaining arguments as -r files")
+        .line("-l", "treat the remaining arguments as -r files instead of a filter"),
+    opt('i', "capture on a network interface")
+        .value("iface", Value::Interface)
+        .line("-i iface", "capture on a network interface (default: the first one)"),
+    opt('p', "do not put the interface into promiscuous mode")
+        .line("-p", "do not put the interface into promiscuous mode"),
+    opt('o', "output directory")
+        .value("outdir", Value::Dir)
+        .line("-o outdir", "output directory (default .)"),
+    opt('T', "flow file name template")
+        .value("template", Value::Text)
+        .line("-T template", "flow file name template (see -hh)"),
+    opt('F', "name and output flags")
+        .value("flags", Value::Flags)
+        .repeatable()
+        .line("-F flags", "name and output flags: c t T k m g, X (no flow files), M (MD5)"),
+    opt('b', "store at most this many bytes per flow")
+        .value("max_bytes", Value::Number)
+        .line("-b max_bytes", "store at most this many bytes per flow"),
+    opt('m', "a sequence gap larger than this starts a new flow")
+        .value("bytes", Value::Number)
+        .line("-m bytes", "a sequence gap larger than this starts a new flow (default 16777216)"),
+    opt('f', "maximum number of open flow files")
+        .value("max_fds", Value::Number)
+        .line("-f max_fds", "maximum number of open flow files"),
+    opt('X', "write the DFXML report to this file")
+        .value("file", Value::File)
+        .line("-X file", "write the DFXML report here (default outdir/report.xml)"),
+    opt('c', "print flow data to stdout instead of files")
+        .line("-c", "print flow data to stdout instead of files, no report"),
+    opt('C', "like -c, without the flow name before each segment")
+        .line("-C", "like -c, without the flow name before each segment"),
+    opt('D', "print as hex dump").line("-D", "print as hex dump (implies -B)"),
+    opt('B', "print bytes as they are")
+        .line("-B", "print bytes as they are; -s replaces non-printable ones (default)"),
+    opt('s', "replace non-printable bytes when printing (default)"),
+    opt('0', "no newline after each printed segment")
+        .line("-0", "no newline after each printed segment"),
+    opt('g', "colour printed segments by direction")
+        .line("-g", "colour printed segments by direction"),
+    opt('J', "print segments as JSON lines")
+        .line("-J", "print segments as JSON lines (implies -c unless -C)"),
+    opt('L', "serialise printing across processes with a named semaphore")
+        .value("name", Value::Text)
+        .line("-L name", "serialise printing across processes with a named semaphore"),
+    opt('I', "write a .findx packet index next to each flow file")
+        .line("-I", "write a .findx packet index next to each flow file"),
+    opt('K', "write one pcap file per flow instead of the data")
+        .line("-K", "write one pcap file per flow instead of the data"),
+    opt('w', "write packets that were not processed as TCP to a pcap file")
+        .value("file", Value::File)
+        .line("-w file", "write packets that were not processed as TCP to a pcap file"),
+    opt('a', "post-process flows: HTTP bodies and MD5")
+        .line("-a", "post-process flows: HTTP bodies and MD5"),
+    opt('e', "enable a post-processor")
+        .value("name", Value::PostProcessor)
+        .repeatable()
+        .line(
+            "-e name",
+            "enable a post-processor (http, md5); -x disables one;\n-E disables all, then enables one",
+        ),
+    opt('x', "disable a post-processor")
+        .value("name", Value::PostProcessor)
+        .repeatable(),
+    opt('E', "disable all post-processors, then enable one").value("name", Value::PostProcessor),
+    opt('Z', "do not decompress gzip or deflate HTTP bodies")
+        .line("-Z", "do not decompress gzip or deflate HTTP bodies"),
+    opt('S', "set a parameter")
+        .value("name=val", Value::Param)
+        .repeatable()
+        .line("-S name=val", "set a parameter (see -hh)"),
+    opt('U', "drop root privileges after opening the first input")
+        .long("relinquish-privileges")
+        .value("user", Value::User)
+        .line("-U user", "drop root privileges after opening the first input"),
+    opt('z', "chroot to this directory when dropping privileges")
+        .long("chroot")
+        .value("dir", Value::Dir)
+        .line("-z dir", "chroot to dir when dropping privileges (needs -U)"),
+    opt('q', "no warning about too many files").line("-q", "no warning about too many files"),
+    opt('d', "debug level")
+        .value("n", Value::Number)
+        .line("-d n, -v", "debug level n; -v is -d 10"),
+    opt('v', "debug level 10").long("verbose"),
+    opt('V', "print the version")
+        .long("version")
+        .line("-V", "print the version; -h, -hh: this help"),
+    opt('h', "print the help; twice for more").long("help").repeatable(),
+];
+
+/// One `-S` parameter (SPEC.md 13).
+pub struct Param {
+    pub name: &'static str,
+    /// The value in the help, such as `N`.
+    pub value: &'static str,
+    pub help: &'static str,
+}
+
+pub const PARAMS: &[Param] = &[
+    Param {
+        name: "enable_report",
+        value: "0",
+        help: "no report",
+    },
+    Param {
+        name: "tdelta",
+        value: "N",
+        help: "add N seconds to every timestamp",
+    },
+    Param {
+        name: "tcp_timeout",
+        value: "N",
+        help: "close flows idle for more than N seconds",
+    },
+    Param {
+        name: "tcp_cmd",
+        value: "CMD",
+        help: "run CMD with each closed flow file as argument",
+    },
+    Param {
+        name: "http_cmd",
+        value: "CMD",
+        help: "run CMD with each HTTP body file as argument",
+    },
+    Param {
+        name: "tcp_alert_fd",
+        value: "N",
+        help: "write open/close lines for flow files to descriptor N",
+    },
+    Param {
+        name: "http_alert_fd",
+        value: "N",
+        help: "the same for HTTP body files",
+    },
+    Param {
+        name: "http_max_body",
+        value: "N",
+        help: "largest HTTP body file, 0 for no limit (default 1 GiB)",
+    },
+    Param {
+        name: "packet-buffer-timeout",
+        value: "N",
+        help: "libpcap read timeout in milliseconds (default 10)",
+    },
+];
+
+/// The names `-e`, `-x` and `-E` take (SPEC.md 13.3).
+pub const POST_PROCESSORS: &[(&str, &str)] = &[
+    ("http", "HTTP bodies"),
+    ("md5", "MD5 of every flow"),
+    ("all", "every post-processor"),
+];
+
+/// The `-F` flags (SPEC.md 7.2).
+pub const F_FLAGS: &[(char, &str)] = &[
+    ('c', "always append the connection counter"),
+    ('t', "prepend the Unix start time"),
+    ('T', "prepend the ISO 8601 start time"),
+    ('k', "directories by thousands of flows"),
+    ('m', "directories by millions of flows"),
+    ('g', "directories by billions of flows"),
+    ('X', "store no flow files"),
+    ('M', "add MD5 digests to the report"),
+];
+
 const MAX_SEEK: u32 = 16 * 1024 * 1024;
 
 /// Turn a post-processor on or off by name (`-e`, `-x`, `-E`).
@@ -284,60 +520,31 @@ usage: tcpflow [-aBcCDgIJKpqsvVZ0] [-b max_bytes] [-d debug_level] [-e|-x|-E nam
     if level < 1 {
         return s;
     }
-    s.push_str(
-        "
-  -r file      read packets from a capture file (repeatable; - is stdin; .gz .bz2 .xz .zip)
-  -R file      read a file only to finish flows that are already open
-  -l           treat the remaining arguments as -r files instead of a filter
-  -i iface     capture on a network interface (default: the first one)
-  -p           do not put the interface into promiscuous mode
-  -o outdir    output directory (default .)
-  -T template  flow file name template (see -hh)
-  -F flags     name and output flags: c t T k m g, X (no flow files), M (MD5)
-  -b max_bytes store at most this many bytes per flow
-  -m bytes     a sequence gap larger than this starts a new flow (default 16777216)
-  -f max_fds   maximum number of open flow files
-  -X file      write the DFXML report here (default outdir/report.xml)
-  -c           print flow data to stdout instead of files, no report
-  -C           like -c, without the flow name before each segment
-  -D           print as hex dump (implies -B)
-  -B           print bytes as they are; -s replaces non-printable ones (default)
-  -0           no newline after each printed segment
-  -g           colour printed segments by direction
-  -J           print segments as JSON lines (implies -c unless -C)
-  -L name      serialise printing across processes with a named semaphore
-  -I           write a .findx packet index next to each flow file
-  -K           write one pcap file per flow instead of the data
-  -w file      write packets that were not processed as TCP to a pcap file
-  -a           post-process flows: HTTP bodies and MD5
-  -e name      enable a post-processor (http, md5); -x disables one;
-               -E disables all, then enables one
-  -Z           do not decompress gzip or deflate HTTP bodies
-  -S name=val  set a parameter (see -hh)
-  -U user      drop root privileges after opening the first input
-  -z dir       chroot to dir when dropping privileges (needs -U)
-  -q           no warning about too many files
-  -d n, -v     debug level n; -v is -d 10
-  -V           print the version; -h, -hh: this help
-  expression   a libpcap filter, such as 'tcp port 80'
-",
-    );
+    s.push('\n');
+    for o in OPTIONS {
+        if let Some((left, text)) = o.line {
+            let text = text.replace('\n', &format!("\n{:15}", ""));
+            s.push_str(&format!("  {left:<12} {text}\n"));
+        }
+    }
+    s.push_str("  expression   a libpcap filter, such as 'tcp port 80'\n");
     if level < 2 {
         return s;
     }
     s.push_str(
         "
 parameters (-S name=value):
-  enable_report=0          no report
-  tdelta=N                 add N seconds to every timestamp
-  tcp_timeout=N            close flows idle for more than N seconds
-  tcp_cmd=CMD              run CMD with each closed flow file as argument
-  http_cmd=CMD             run CMD with each HTTP body file as argument
-  tcp_alert_fd=N           write open/close lines for flow files to descriptor N
-  http_alert_fd=N          the same for HTTP body files
-  http_max_body=N          largest HTTP body file, 0 for no limit (default 1 GiB)
-  packet-buffer-timeout=N  libpcap read timeout in milliseconds (default 10)
-
+",
+    );
+    for p in PARAMS {
+        s.push_str(&format!(
+            "  {:<24} {}\n",
+            format!("{}={}", p.name, p.value),
+            p.help
+        ));
+    }
+    s.push_str(
+        "
 file name template codes (-T), default %A.%a-%B.%b%V%v%C%c:
   %A %a        source address, source port (5 digits)
   %B %b        destination address, destination port

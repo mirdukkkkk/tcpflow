@@ -30,12 +30,22 @@
               ./Cargo.lock
               ./src
               ./tests
+              ./doc/completions
             ];
           };
           cargoLock.lockFile = ./Cargo.lock;
 
-          nativeBuildInputs = [ pkgs.pkg-config ];
+          nativeBuildInputs = [
+            pkgs.pkg-config
+            pkgs.installShellFiles
+          ];
           buildInputs = [ pkgs.libpcap ];
+
+          postInstall = ''
+            installShellCompletion --bash --name tcpflow doc/completions/tcpflow.bash
+            installShellCompletion --zsh doc/completions/_tcpflow
+            installShellCompletion --fish doc/completions/tcpflow.fish
+          '';
 
           meta = {
             description = "TCP/IP packet demultiplexer";

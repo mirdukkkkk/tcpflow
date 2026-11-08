@@ -1,0 +1,88 @@
+#compdef tcpflow
+# zsh completion for tcpflow
+# generated from src/cli.rs by `cargo run --example completions`; do not edit
+
+_tcpflow_params() {
+  local -a params=(
+    'enable_report=:no report'
+    'tdelta=:add N seconds to every timestamp'
+    'tcp_timeout=:close flows idle for more than N seconds'
+    'tcp_cmd=:run CMD with each closed flow file as argument'
+    'http_cmd=:run CMD with each HTTP body file as argument'
+    'tcp_alert_fd=:write open/close lines for flow files to descriptor N'
+    'http_alert_fd=:the same for HTTP body files'
+    'http_max_body=:largest HTTP body file, 0 for no limit (default 1 GiB)'
+    'packet-buffer-timeout=:libpcap read timeout in milliseconds (default 10)'
+  )
+  _describe -t parameters 'parameter' params -S ''
+}
+
+_tcpflow_post() {
+  local -a names=(
+    'http:HTTP bodies'
+    'md5:MD5 of every flow'
+    'all:every post-processor'
+  )
+  _describe -t post-processors 'post-processor' names
+}
+
+# -F takes several flags in one word (-Fct): complete one more letter
+_tcpflow_flags() {
+  local -a flags=(
+    'c:always append the connection counter'
+    't:prepend the Unix start time'
+    'T:prepend the ISO 8601 start time'
+    'k:directories by thousands of flows'
+    'm:directories by millions of flows'
+    'g:directories by billions of flows'
+    'X:store no flow files'
+    'M:add MD5 digests to the report'
+  )
+  compset -P '*'
+  _describe -t flags 'flag' flags -S ''
+}
+
+_arguments -s -S \
+  '*-r+[read packets from a capture file]:file:_files' \
+  '*-R+[read a file only to finish flows that are already open]:file:_files' \
+  '-l[treat the remaining arguments as -r files]' \
+  '-i+[capture on a network interface]:iface:_net_interfaces' \
+  '-p[do not put the interface into promiscuous mode]' \
+  '-o+[output directory]:outdir:_files -/' \
+  '-T+[flow file name template]:template: ' \
+  '*-F+[name and output flags]:flags:_tcpflow_flags' \
+  '-b+[store at most this many bytes per flow]:max_bytes: ' \
+  '-m+[a sequence gap larger than this starts a new flow]:bytes: ' \
+  '-f+[maximum number of open flow files]:max_fds: ' \
+  '-X+[write the DFXML report to this file]:file:_files' \
+  '-c[print flow data to stdout instead of files]' \
+  '-C[like -c, without the flow name before each segment]' \
+  '-D[print as hex dump]' \
+  '-B[print bytes as they are]' \
+  '-s[replace non-printable bytes when printing (default)]' \
+  '-0[no newline after each printed segment]' \
+  '-g[colour printed segments by direction]' \
+  '-J[print segments as JSON lines]' \
+  '-L+[serialise printing across processes with a named semaphore]:name: ' \
+  '-I[write a .findx packet index next to each flow file]' \
+  '-K[write one pcap file per flow instead of the data]' \
+  '-w+[write packets that were not processed as TCP to a pcap file]:file:_files' \
+  '-a[post-process flows\: HTTP bodies and MD5]' \
+  '*-e+[enable a post-processor]:name:_tcpflow_post' \
+  '*-x+[disable a post-processor]:name:_tcpflow_post' \
+  '-E+[disable all post-processors, then enable one]:name:_tcpflow_post' \
+  '-Z[do not decompress gzip or deflate HTTP bodies]' \
+  '*-S+[set a parameter]:name=val:_tcpflow_params' \
+  '-U+[drop root privileges after opening the first input]:user:_users' \
+  '--relinquish-privileges=[drop root privileges after opening the first input]:user:_users' \
+  '-z+[chroot to this directory when dropping privileges]:dir:_files -/' \
+  '--chroot=[chroot to this directory when dropping privileges]:dir:_files -/' \
+  '-q[no warning about too many files]' \
+  '-d+[debug level]:n: ' \
+  '-v[debug level 10]' \
+  '--verbose[debug level 10]' \
+  '-V[print the version]' \
+  '--version[print the version]' \
+  '*-h[print the help; twice for more]' \
+  '*--help[print the help; twice for more]' \
+  '*:filter expression, or capture files with -l:_files'
