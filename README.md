@@ -124,8 +124,9 @@ file name and, with `-a` or `-FM`, the MD5 of the data.
 
 ## Differences from tcpflow 1.x
 
-The [differences table in SPEC.md](SPEC.md#17-intentional-differences-from-162)
-lists every intentional change. The main ones:
+[CHANGELOG.md](CHANGELOG.md) lists the changes, and the
+[differences table in SPEC.md](SPEC.md#17-intentional-differences-from-162)
+describes each one in detail. The main ones:
 
 - many 1.x bugs are fixed: hangs with `-Fc` and `%%c`, wrong data after
   a sequence shift, `-L`, `-FM` and `-w` that did not work, `-K` files with
