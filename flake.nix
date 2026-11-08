@@ -32,6 +32,7 @@
               ./tests
               ./doc/completions
               ./doc/tcpflow.1
+              ./doc/tcpflow.1.md
             ];
           };
           cargoLock.lockFile = ./Cargo.lock;
@@ -91,6 +92,8 @@
             pkg-config
             libpcap
             python3
+            pandoc
+            groff
           ];
         };
 

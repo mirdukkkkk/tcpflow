@@ -38,6 +38,14 @@ jobs:
       - run: cargo build --release
       - run: python3 -I tests/scripts/conformance.py check target/release/tcpflow
 
+  # doc/tcpflow.1 is generated from doc/tcpflow.1.md
+  manpage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y pandoc groff-base
+      - run: sh doc/manpage.sh --check
+
   root:
     runs-on: ubuntu-latest
     steps:
