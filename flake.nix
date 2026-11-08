@@ -81,6 +81,15 @@
             python3
           ];
         };
+
+        # nix develop .#fuzz, then: cargo fuzz run -s none decode (fuzz/README.md).
+        # cargo-fuzz needs -Z flags; RUSTC_BOOTSTRAP lets the stable rustc take
+        # them. nixpkgs' rustc has no ASan runtime, hence -s none.
+        fuzz = pkgs.mkShell {
+          inputsFrom = [ self.devShells.${pkgs.stdenv.hostPlatform.system}.default ];
+          packages = [ pkgs.cargo-fuzz ];
+          RUSTC_BOOTSTRAP = 1;
+        };
       });
 
       formatter = forAllSystems (pkgs: pkgs.nixfmt);
