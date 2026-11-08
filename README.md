@@ -15,11 +15,22 @@ branch.
 
 ## Building
 
+Needs Rust 1.87 or newer (for example from [rustup](https://rustup.rs)),
+libpcap with its headers and pkg-config. On Debian or Ubuntu:
+`apt install libpcap-dev pkg-config`; on Fedora: `dnf install libpcap-devel
+pkgconf`; on macOS libpcap comes with the system. Python 3 is only needed
+for the conformance check.
+
 ```
 cargo build --release
 cargo test
 python3 tests/scripts/conformance.py check target/release/tcpflow
 ```
+
+The binary is `target/release/tcpflow`.
+
+Nix is optional: if you use it, `nix develop` gives a shell with all of the
+above, and `nix build` builds the package.
 
 ## License
 
